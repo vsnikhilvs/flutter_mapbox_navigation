@@ -146,16 +146,19 @@ class NavigationActivity : AppCompatActivity() {
             }
         }
 
-        registerReceiver(
-            finishBroadcastReceiver,
-            IntentFilter(NavigationLauncher.KEY_STOP_NAVIGATION)
-        )
-
-        registerReceiver(
-            addWayPointsBroadcastReceiver,
-            IntentFilter(NavigationLauncher.KEY_ADD_WAYPOINTS)
-        )
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                finishBroadcastReceiver,
+                IntentFilter(NavigationLauncher.KEY_STOP_NAVIGATION),
+                RECEIVER_EXPORTED
+            )
+        } else {
+            registerReceiver(
+                addWayPointsBroadcastReceiver,
+                IntentFilter(NavigationLauncher.KEY_ADD_WAYPOINTS)
+            )
+        }
+        
         // TODO set the style Uri
         var styleUrlDay = FlutterMapboxNavigationPlugin.mapStyleUrlDay
         var styleUrlNight = FlutterMapboxNavigationPlugin.mapStyleUrlNight
