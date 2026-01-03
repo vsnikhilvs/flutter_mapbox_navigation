@@ -136,14 +136,22 @@ class NavigationActivity : AppCompatActivity() {
         
         // Initialize marker manager when map style loads
         iconLoader = IconLoader(this.applicationContext)
-        binding.navigationView.mapView.mapboxMap.loadStyle { style ->
-            markerManager = MarkerManager(
-                this.applicationContext,
-                binding.navigationView.mapView,
-                iconLoader!!
-            )
-            markerManager?.initialize(style)
-        }
+        // Use MapViewObserver to get MapView when it's attached
+        binding.navigationView.registerMapObserver(object : MapViewObserver() {
+            override fun onAttached(mapView: MapView) {
+                super.onAttached(mapView)
+                val mapboxMap = mapView.getMapboxMap()
+                // Initialize marker manager when style is loaded
+                mapboxMap.loadStyleUri(Style.MAPBOX_STREETS) { style ->
+                    markerManager = MarkerManager(
+                        this@NavigationActivity.applicationContext,
+                        mapView,
+                        iconLoader!!
+                    )
+                    markerManager?.initialize(style)
+                }
+            }
+        })
 
         // Free drive mode
         if (FlutterMapboxNavigationPlugin.enableFreeDriveMode) {

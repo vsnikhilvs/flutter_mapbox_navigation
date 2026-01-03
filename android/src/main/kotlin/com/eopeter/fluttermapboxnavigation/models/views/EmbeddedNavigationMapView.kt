@@ -63,15 +63,23 @@ class EmbeddedNavigationMapView(
         }
         
         // Initialize marker manager when map style loads
-        iconLoader = IconLoader(context)
-        binding.navigationView.mapView.mapboxMap.loadStyle { style ->
-            markerManager = MarkerManager(
-                context,
-                binding.navigationView.mapView,
-                iconLoader!!
-            )
-            markerManager?.initialize(style)
-        }
+        iconLoader = IconLoader(activity)
+        // Use MapViewObserver to get MapView when it's attached
+        this.binding.navigationView.registerMapObserver(object : MapViewObserver() {
+            override fun onAttached(mapView: MapView) {
+                super.onAttached(mapView)
+                val mapboxMap = mapView.getMapboxMap()
+                // Initialize marker manager when style is loaded
+                mapboxMap.loadStyleUri(Style.MAPBOX_STREETS) { style ->
+                    markerManager = MarkerManager(
+                        activity,
+                        mapView,
+                        iconLoader!!
+                    )
+                    markerManager?.initialize(style)
+                }
+            }
+        })
     }
     
     override fun onMethodCall(methodCall: MethodCall, result: MethodChannel.Result) {

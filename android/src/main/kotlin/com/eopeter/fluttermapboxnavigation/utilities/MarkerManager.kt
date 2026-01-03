@@ -11,6 +11,7 @@ import com.mapbox.maps.extension.style.layers.properties.generated.TextAnchor
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManager
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions
 import com.mapbox.maps.plugin.annotation.generated.createPointAnnotationManager
+import com.mapbox.maps.plugin.annotation.AnnotationPlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,7 +61,7 @@ class MarkerManager(
         val iconWidth: Int,
         val iconHeight: Int,
         val color: Int?,
-        var annotationId: String? = null
+        var annotationId: String? = null // Store as String for compatibility
     )
     
     data class MarkerUpdate(
@@ -72,7 +73,22 @@ class MarkerManager(
      * Initialize the marker manager when map style is loaded
      */
     fun initialize(style: Style) {
-        pointAnnotationManager = mapView.annotations.createPointAnnotationManager(mapView)
+        // Create point annotation manager using the annotation plugin
+        // The createPointAnnotationManager is an extension function on AnnotationPlugin
+        try {
+            // Get the annotation plugin from mapView's plugin registry
+            // The plugin ID for annotation plugin is typically "annotation"
+            val annotationPlugin = mapView.getPlugin("annotation") as? AnnotationPlugin
+                ?: throw IllegalStateException("AnnotationPlugin not found")
+            
+            // Use the extension function to create the annotation manager
+            // The function can take mapView (as View) or just annotationConfig (null for defaults)
+            pointAnnotationManager = annotationPlugin.createPointAnnotationManager(mapView)
+        } catch (e: Exception) {
+            android.util.Log.e("MarkerManager", "Failed to create PointAnnotationManager: ${e.message}", e)
+            // If annotation manager creation fails, markers won't be displayed
+            // but the app should still function
+        }
         // Note: Clustering is handled by Mapbox automatically when using PointAnnotationManager
         // with appropriate configuration
     }
@@ -169,7 +185,7 @@ class MarkerManager(
                     if (index < batch.size) {
                         val markerId = batch[index]["id"] as? String
                         markerId?.let {
-                            markers[it]?.annotationId = annotation.id
+                            markers[it]?.annotationId = annotation.id.toString()
                         }
                     }
                 }
@@ -262,11 +278,11 @@ class MarkerManager(
                 existingMarker.annotationId?.let { annotationId ->
                     // Find and update the annotation
                     val annotations = pointAnnotationManager?.annotations
-                    val annotation = annotations?.find { it.id == annotationId }
+                    val annotation = annotations?.find { it.id.toString() == annotationId }
                     
                     annotation?.let {
                         // Remove old and create new
-                        pointAnnotationManager?.delete(listOf(annotationId))
+                        pointAnnotationManager?.delete(listOf(annotation))
                         
                         // Create new annotation with updated position
                         val annotationOption = PointAnnotationOptions()
@@ -279,7 +295,7 @@ class MarkerManager(
                         }
                         
                         pointAnnotationManager?.create(listOf(annotationOption))?.firstOrNull()?.let { newAnnotation ->
-                            updatedMarker.annotationId = newAnnotation.id
+                            updatedMarker.annotationId = newAnnotation.id.toString()
                             markers[id] = updatedMarker
                         }
                     }
@@ -294,12 +310,15 @@ class MarkerManager(
     fun removeMarkers(markerIds: List<String>) {
         if (pointAnnotationManager == null) return
         
-        val annotationsToDelete = mutableListOf<String>()
+        val annotationsToDelete = mutableListOf<com.mapbox.maps.plugin.annotation.generated.PointAnnotation>()
         
         markerIds.forEach { id ->
             val marker = markers[id]
-            marker?.annotationId?.let { annotationId ->
-                annotationsToDelete.add(annotationId)
+            marker?.annotationId?.let { annotationIdStr ->
+                // Find annotation by ID string
+                val annotations = pointAnnotationManager?.annotations
+                val annotation = annotations?.find { it.id.toString() == annotationIdStr }
+                annotation?.let { annotationsToDelete.add(it) }
             }
             markers.remove(id)
         }

@@ -7,6 +7,7 @@ import com.eopeter.fluttermapboxnavigation.models.Waypoint;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
 
 public class NavigationLauncher {
     public static final String KEY_ADD_WAYPOINTS = "com.my.mapbox.broadcast.ADD_WAYPOINTS";

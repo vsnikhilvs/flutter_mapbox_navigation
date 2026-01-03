@@ -75,7 +75,7 @@ class IconLoader(private val context: Context) {
             }
             
             // Apply color tint if provided and not network/asset/base64
-            val finalBitmap = if (color != null && iconSource == "defaultIcon") {
+            val finalBitmap = if (bitmap != null && color != null && iconSource == "defaultIcon") {
                 applyColorTint(bitmap, color)
             } else {
                 bitmap

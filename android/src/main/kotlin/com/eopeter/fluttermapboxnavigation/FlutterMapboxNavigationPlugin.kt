@@ -307,22 +307,22 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
         
         // Convert to format expected by NavigationLauncher
         val markersData = markersList.map { marker ->
-            mapOf(
+            hashMapOf<String, Any>(
                 "id" to (marker["id"] as? String ?: ""),
                 "latitude" to (marker["latitude"] as? Double ?: 0.0),
                 "longitude" to (marker["longitude"] as? Double ?: 0.0),
-                "title" to (marker["title"] as? String),
-                "subtitle" to (marker["subtitle"] as? String),
+                "title" to (marker["title"] as? String ?: ""),
+                "subtitle" to (marker["subtitle"] as? String ?: ""),
                 "iconSource" to (marker["iconSource"] as? String ?: "defaultIcon"),
-                "iconData" to (marker["iconData"] as? String),
+                "iconData" to (marker["iconData"] as? String ?: ""),
                 "iconWidth" to ((marker["iconWidth"] as? Number)?.toInt() ?: 40),
                 "iconHeight" to ((marker["iconHeight"] as? Number)?.toInt() ?: 40),
-                "color" to ((marker["color"] as? Number)?.toInt())
+                "color" to ((marker["color"] as? Number)?.toInt() ?: 0)
             )
         }
         
         val clusteringData = clusteringOptions?.let {
-            mapOf(
+            hashMapOf<String, Any>(
                 "enabled" to (it["enabled"] as? Boolean ?: true),
                 "clusterRadius" to ((it["clusterRadius"] as? Number)?.toInt() ?: 50),
                 "clusterMaxZoom" to ((it["clusterMaxZoom"] as? Number)?.toInt() ?: 14)
@@ -343,7 +343,7 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
         }
         
         val markersData = markersList.map { marker ->
-            mapOf(
+            hashMapOf<String, Any>(
                 "id" to (marker["id"] as? String ?: ""),
                 "latitude" to (marker["latitude"] as? Double ?: 0.0),
                 "longitude" to (marker["longitude"] as? Double ?: 0.0)
