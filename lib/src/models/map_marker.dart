@@ -29,31 +29,31 @@ class MapMarker {
   });
 
   /// Create [MapMarker] from a JSON map
-  MapMarker.fromJson(Map<String, dynamic> json) {
-    id = json['id'] as String? ?? '';
-    latitude = (json['latitude'] is String)
-        ? double.tryParse(json['latitude'] as String)
-        : json['latitude'] as double?;
-    longitude = (json['longitude'] is String)
-        ? double.tryParse(json['longitude'] as String)
-        : json['longitude'] as double?;
-    title = json['title'] as String?;
-    subtitle = json['subtitle'] as String?;
-    
-    final iconSourceStr = json['iconSource'] as String?;
+  MapMarker.fromJson(Map<String, dynamic> json)
+      : id = json['id'] as String? ?? '',
+        latitude = (json['latitude'] is String)
+            ? double.tryParse(json['latitude'] as String)
+            : json['latitude'] as double?,
+        longitude = (json['longitude'] is String)
+            ? double.tryParse(json['longitude'] as String)
+            : json['longitude'] as double?,
+        title = json['title'] as String?,
+        subtitle = json['subtitle'] as String?,
+        iconSource = _parseIconSource(json['iconSource'] as String?),
+        iconData = json['iconData'] as String?,
+        iconWidth = json['iconWidth'] as int? ?? 40,
+        iconHeight = json['iconHeight'] as int? ?? 40,
+        color = json['color'] as int?;
+
+  /// Helper method to parse icon source from string
+  static MarkerIconSource _parseIconSource(String? iconSourceStr) {
     if (iconSourceStr != null) {
-      iconSource = MarkerIconSource.values.firstWhere(
+      return MarkerIconSource.values.firstWhere(
         (e) => e.toString().split('.').last == iconSourceStr,
         orElse: () => MarkerIconSource.defaultIcon,
       );
-    } else {
-      iconSource = MarkerIconSource.defaultIcon;
     }
-    
-    iconData = json['iconData'] as String?;
-    iconWidth = json['iconWidth'] as int? ?? 40;
-    iconHeight = json['iconHeight'] as int? ?? 40;
-    color = json['color'] as int?;
+    return MarkerIconSource.defaultIcon;
   }
 
   /// Unique identifier for the marker

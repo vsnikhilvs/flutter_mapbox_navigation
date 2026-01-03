@@ -8,11 +8,10 @@ class ClusteringOptions {
   });
 
   /// Create [ClusteringOptions] from a JSON map
-  ClusteringOptions.fromJson(Map<String, dynamic> json) {
-    enabled = json['enabled'] as bool? ?? true;
-    clusterRadius = json['clusterRadius'] as int? ?? 50;
-    clusterMaxZoom = json['clusterMaxZoom'] as int? ?? 14;
-  }
+  ClusteringOptions.fromJson(Map<String, dynamic> json)
+      : enabled = json['enabled'] as bool? ?? true,
+        clusterRadius = json['clusterRadius'] as int? ?? 50,
+        clusterMaxZoom = json['clusterMaxZoom'] as int? ?? 14;
 
   /// Whether clustering is enabled (default: true)
   bool enabled;
