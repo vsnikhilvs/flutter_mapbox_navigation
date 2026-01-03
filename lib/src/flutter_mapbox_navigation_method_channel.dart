@@ -170,4 +170,58 @@ class MethodChannelFlutterMapboxNavigation
     }
     return pointList;
   }
+
+  @override
+  Future<bool?> addMarkers({
+    required List<MapMarker> markers,
+    ClusteringOptions? clustering,
+  }) async {
+    final markersList = markers.map((m) => m.toMap()).toList();
+    final args = <String, dynamic>{
+      'markers': markersList,
+    };
+    if (clustering != null) {
+      args['clustering'] = clustering.toMap();
+    }
+    final result = await methodChannel.invokeMethod<bool?>('addMarkers', args);
+    return result ?? false;
+  }
+
+  @override
+  Future<bool?> updateMarkers({required List<MapMarker> markers}) async {
+    final markersList = markers.map((m) => m.toMap()).toList();
+    final args = <String, dynamic>{
+      'markers': markersList,
+    };
+    final result =
+        await methodChannel.invokeMethod<bool?>('updateMarkers', args);
+    return result ?? false;
+  }
+
+  @override
+  Future<bool?> removeMarkers({required List<String> markerIds}) async {
+    final args = <String, dynamic>{
+      'markerIds': markerIds,
+    };
+    final result =
+        await methodChannel.invokeMethod<bool?>('removeMarkers', args);
+    return result ?? false;
+  }
+
+  @override
+  Future<bool?> clearAllMarkers() async {
+    final result =
+        await methodChannel.invokeMethod<bool?>('clearAllMarkers', null);
+    return result ?? false;
+  }
+
+  @override
+  Future<bool?> setClusteringOptions(ClusteringOptions options) async {
+    final args = options.toMap();
+    final result = await methodChannel.invokeMethod<bool?>(
+      'setClusteringOptions',
+      args,
+    );
+    return result ?? false;
+  }
 }

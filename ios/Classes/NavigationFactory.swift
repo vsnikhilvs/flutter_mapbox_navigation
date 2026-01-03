@@ -281,6 +281,11 @@ public class NavigationFactory : NSObject, FlutterStreamHandler
         
     }
     
+    // Helper to get NavigationViewController for marker operations
+    var navigationViewController: NavigationViewController? {
+        return _navigationViewController
+    }
+    
     func getLocationsFromFlutterArgument(arguments: NSDictionary?) -> [Location]? {
         
         var locations = [Location]()

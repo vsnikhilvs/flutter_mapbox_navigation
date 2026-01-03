@@ -6,12 +6,19 @@ import android.view.View
 import com.eopeter.fluttermapboxnavigation.TurnByTurn
 import com.eopeter.fluttermapboxnavigation.databinding.NavigationActivityBinding
 import com.eopeter.fluttermapboxnavigation.models.MapBoxEvents
+import com.eopeter.fluttermapboxnavigation.utilities.IconLoader
+import com.eopeter.fluttermapboxnavigation.utilities.MarkerManager
 import com.eopeter.fluttermapboxnavigation.utilities.PluginUtilities
 import com.mapbox.geojson.Point
 import com.mapbox.maps.MapView
+import com.mapbox.maps.Style
 import com.mapbox.maps.plugin.gestures.OnMapClickListener
 import com.mapbox.maps.plugin.gestures.gestures
 import com.mapbox.navigation.dropin.map.MapViewObserver
+import io.flutter.plugin.common.MethodCall
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -30,6 +37,10 @@ class EmbeddedNavigationMapView(
     private val viewId: Int = vId
     private val messenger: BinaryMessenger = binaryMessenger
     private val arguments = args as Map<*, *>
+    
+    // Marker management
+    private var markerManager: MarkerManager? = null
+    private var iconLoader: IconLoader? = null
 
     override fun initFlutterChannelHandlers() {
         methodChannel = MethodChannel(messenger, "flutter_mapbox_navigation/${viewId}")
@@ -50,6 +61,111 @@ class EmbeddedNavigationMapView(
         if((this.arguments?.get("enableOnMapTapCallback") as Boolean)) {
             this.binding.navigationView.registerMapObserver(onMapClick)
         }
+        
+        // Initialize marker manager when map style loads
+        iconLoader = IconLoader(context)
+        binding.navigationView.mapView.mapboxMap.loadStyle { style ->
+            markerManager = MarkerManager(
+                context,
+                binding.navigationView.mapView,
+                iconLoader!!
+            )
+            markerManager?.initialize(style)
+        }
+    }
+    
+    override fun onMethodCall(methodCall: MethodCall, result: MethodChannel.Result) {
+        when (methodCall.method) {
+            "addMarkers" -> {
+                addMarkers(methodCall, result)
+            }
+            "updateMarkers" -> {
+                updateMarkers(methodCall, result)
+            }
+            "removeMarkers" -> {
+                removeMarkers(methodCall, result)
+            }
+            "clearAllMarkers" -> {
+                clearAllMarkers(result)
+            }
+            "setClusteringOptions" -> {
+                setClusteringOptions(methodCall, result)
+            }
+            else -> {
+                super.onMethodCall(methodCall, result)
+            }
+        }
+    }
+    
+    private fun addMarkers(methodCall: MethodCall, result: MethodChannel.Result) {
+        val arguments = methodCall.arguments as? Map<*, *>
+        val markersList = arguments?.get("markers") as? List<Map<*, *>>
+        val clusteringOptions = arguments?.get("clustering") as? Map<*, *>
+        
+        if (markersList == null || markerManager == null) {
+            result.success(false)
+            return
+        }
+        
+        CoroutineScope(Dispatchers.Main).launch {
+            markerManager?.addMarkers(
+                markersList.map { it as Map<String, Any> },
+                clusteringOptions as? Map<String, Any>
+            )
+            result.success(true)
+        }
+    }
+    
+    private fun updateMarkers(methodCall: MethodCall, result: MethodChannel.Result) {
+        val arguments = methodCall.arguments as? Map<*, *>
+        val markersList = arguments?.get("markers") as? List<Map<*, *>>
+        
+        if (markersList == null || markerManager == null) {
+            result.success(false)
+            return
+        }
+        
+        markerManager?.updateMarkers(markersList.map { it as Map<String, Any> })
+        result.success(true)
+    }
+    
+    private fun removeMarkers(methodCall: MethodCall, result: MethodChannel.Result) {
+        val arguments = methodCall.arguments as? Map<*, *>
+        val markerIds = arguments?.get("markerIds") as? List<String>
+        
+        if (markerIds == null || markerManager == null) {
+            result.success(false)
+            return
+        }
+        
+        markerManager?.removeMarkers(markerIds)
+        result.success(true)
+    }
+    
+    private fun clearAllMarkers(result: MethodChannel.Result) {
+        if (markerManager == null) {
+            result.success(false)
+            return
+        }
+        
+        markerManager?.clearAllMarkers()
+        result.success(true)
+    }
+    
+    private fun setClusteringOptions(methodCall: MethodCall, result: MethodChannel.Result) {
+        val arguments = methodCall.arguments as? Map<*, *>
+        
+        if (arguments == null || markerManager == null) {
+            result.success(false)
+            return
+        }
+        
+        val enabled = arguments["enabled"] as? Boolean ?: true
+        val radius = (arguments["clusterRadius"] as? Number)?.toInt() ?: 50
+        val maxZoom = (arguments["clusterMaxZoom"] as? Number)?.toInt() ?: 14
+        
+        markerManager?.setClusteringOptions(enabled, radius, maxZoom)
+        result.success(true)
     }
 
     override fun getView(): View {
@@ -61,6 +177,12 @@ class EmbeddedNavigationMapView(
             this.binding.navigationView.unregisterMapObserver(onMapClick)
         }
         unregisterObservers()
+        
+        // Cleanup marker manager
+        markerManager?.dispose()
+        markerManager = null
+        iconLoader?.clearCache()
+        iconLoader = null
     }
 
     /**

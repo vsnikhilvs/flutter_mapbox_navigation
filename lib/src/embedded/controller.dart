@@ -126,6 +126,68 @@ class MapBoxNavigationViewController {
     return success as bool?;
   }
 
+  /// Add multiple markers to the embedded navigation map
+  ///
+  /// [markers] List of markers to add. Each marker must have a unique id.
+  /// [clustering] Optional clustering configuration.
+  Future<bool> addMarkers({
+    required List<MapMarker> markers,
+    ClusteringOptions? clustering,
+  }) async {
+    final markersList = markers.map((m) => m.toMap()).toList();
+    final args = <String, dynamic>{
+      'markers': markersList,
+    };
+    if (clustering != null) {
+      args['clustering'] = clustering.toMap();
+    }
+    return _methodChannel
+        .invokeMethod('addMarkers', args)
+        .then((dynamic result) => result as bool);
+  }
+
+  /// Update existing markers with new positions
+  ///
+  /// [markers] List of markers to update. Each marker must have an existing id.
+  Future<bool> updateMarkers({required List<MapMarker> markers}) async {
+    final markersList = markers.map((m) => m.toMap()).toList();
+    final args = <String, dynamic>{
+      'markers': markersList,
+    };
+    return _methodChannel
+        .invokeMethod('updateMarkers', args)
+        .then((dynamic result) => result as bool);
+  }
+
+  /// Remove markers by their ids
+  ///
+  /// [markerIds] List of marker ids to remove from the map.
+  Future<bool> removeMarkers({required List<String> markerIds}) async {
+    final args = <String, dynamic>{
+      'markerIds': markerIds,
+    };
+    return _methodChannel
+        .invokeMethod('removeMarkers', args)
+        .then((dynamic result) => result as bool);
+  }
+
+  /// Clear all markers from the embedded navigation map
+  Future<bool> clearAllMarkers() async {
+    return _methodChannel
+        .invokeMethod('clearAllMarkers', null)
+        .then((dynamic result) => result as bool);
+  }
+
+  /// Set clustering options for markers
+  ///
+  /// [options] Clustering configuration.
+  Future<bool> setClusteringOptions(ClusteringOptions options) async {
+    final args = options.toMap();
+    return _methodChannel
+        .invokeMethod('setClusteringOptions', args)
+        .then((dynamic result) => result as bool);
+  }
+
   /// Generic Handler for Messages sent from the Platform
   Future<dynamic> _handleMethod(MethodCall call) async {
     switch (call.method) {

@@ -16,8 +16,13 @@ import com.eopeter.fluttermapboxnavigation.models.MapBoxRouteProgressEvent
 import com.eopeter.fluttermapboxnavigation.models.Waypoint
 import com.eopeter.fluttermapboxnavigation.models.WaypointSet
 import com.eopeter.fluttermapboxnavigation.utilities.CustomInfoPanelEndNavButtonBinder
+import com.eopeter.fluttermapboxnavigation.utilities.IconLoader
+import com.eopeter.fluttermapboxnavigation.utilities.MarkerManager
 import com.eopeter.fluttermapboxnavigation.utilities.PluginUtilities
 import com.eopeter.fluttermapboxnavigation.utilities.PluginUtilities.Companion.sendEvent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.google.gson.Gson
 import com.mapbox.api.directions.v5.models.DirectionsRoute
 import com.mapbox.api.directions.v5.models.RouteOptions
@@ -58,6 +63,11 @@ class NavigationActivity : AppCompatActivity() {
     private var isNavigationInProgress = false
 
     private val addedWaypoints = WaypointSet()
+    
+    // Marker management
+    private var markerManager: MarkerManager? = null
+    private var iconLoader: IconLoader? = null
+    private var markersBroadcastReceiver: BroadcastReceiver? = null
 
     private val navigationStateListener = object : NavigationViewListener() {
         override fun onFreeDrive() {}
@@ -123,6 +133,17 @@ class NavigationActivity : AppCompatActivity() {
             mapStyleUriDay = styleUrlDay
             mapStyleUriNight = styleUrlNight
         }
+        
+        // Initialize marker manager when map style loads
+        iconLoader = IconLoader(this.applicationContext)
+        binding.navigationView.mapView.mapboxMap.loadStyle { style ->
+            markerManager = MarkerManager(
+                this.applicationContext,
+                binding.navigationView.mapView,
+                iconLoader!!
+            )
+            markerManager?.initialize(style)
+        }
 
         // Free drive mode
         if (FlutterMapboxNavigationPlugin.enableFreeDriveMode) {
@@ -165,7 +186,14 @@ class NavigationActivity : AppCompatActivity() {
         try {
             finishBroadcastReceiver?.let { unregisterReceiver(it) }
             addWayPointsBroadcastReceiver?.let { unregisterReceiver(it) }
+            markersBroadcastReceiver?.let { unregisterReceiver(it) }
         } catch (_: IllegalArgumentException) {}
+        
+        // Cleanup marker manager
+        markerManager?.dispose()
+        markerManager = null
+        iconLoader?.clearCache()
+        iconLoader = null
     }
 
     private fun initReceivers() {
@@ -188,15 +216,65 @@ class NavigationActivity : AppCompatActivity() {
             }
         }
 
+        // Marker broadcast receiver
+        markersBroadcastReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    NavigationLauncher.KEY_ADD_MARKERS -> {
+                        val markersList = intent.getSerializableExtra("markers") as? List<Map<*, *>>
+                        val clusteringOptions = intent.getSerializableExtra("clustering") as? Map<*, *>
+                        if (markersList != null) {
+                            CoroutineScope(Dispatchers.Main).launch {
+                                markerManager?.addMarkers(
+                                    markersList.map { it as Map<String, Any> },
+                                    clusteringOptions as? Map<String, Any>
+                                )
+                            }
+                        }
+                    }
+                    NavigationLauncher.KEY_UPDATE_MARKERS -> {
+                        val markersList = intent.getSerializableExtra("markers") as? List<Map<*, *>>
+                        if (markersList != null) {
+                            markerManager?.updateMarkers(markersList.map { it as Map<String, Any> })
+                        }
+                    }
+                    NavigationLauncher.KEY_REMOVE_MARKERS -> {
+                        val markerIds = intent.getSerializableExtra("markerIds") as? List<String>
+                        if (markerIds != null) {
+                            markerManager?.removeMarkers(markerIds)
+                        }
+                    }
+                    NavigationLauncher.KEY_CLEAR_ALL_MARKERS -> {
+                        markerManager?.clearAllMarkers()
+                    }
+                    NavigationLauncher.KEY_SET_CLUSTERING_OPTIONS -> {
+                        val enabled = intent.getBooleanExtra("enabled", true)
+                        val radius = intent.getIntExtra("radius", 50)
+                        val maxZoom = intent.getIntExtra("maxZoom", 14)
+                        markerManager?.setClusteringOptions(enabled, radius, maxZoom)
+                    }
+                }
+            }
+        }
+        
         val stopFilter = IntentFilter(NavigationLauncher.KEY_STOP_NAVIGATION)
         val waypointFilter = IntentFilter(NavigationLauncher.KEY_ADD_WAYPOINTS)
+        val markerFilter = IntentFilter().apply {
+            addAction(NavigationLauncher.KEY_ADD_MARKERS)
+            addAction(NavigationLauncher.KEY_UPDATE_MARKERS)
+            addAction(NavigationLauncher.KEY_REMOVE_MARKERS)
+            addAction(NavigationLauncher.KEY_CLEAR_ALL_MARKERS)
+            addAction(NavigationLauncher.KEY_SET_CLUSTERING_OPTIONS)
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(finishBroadcastReceiver, stopFilter, Context.RECEIVER_NOT_EXPORTED)
             registerReceiver(addWayPointsBroadcastReceiver, waypointFilter, Context.RECEIVER_NOT_EXPORTED)
+            registerReceiver(markersBroadcastReceiver, markerFilter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(finishBroadcastReceiver, stopFilter)
             registerReceiver(addWayPointsBroadcastReceiver, waypointFilter)
+            registerReceiver(markersBroadcastReceiver, markerFilter)
         }
     }
 

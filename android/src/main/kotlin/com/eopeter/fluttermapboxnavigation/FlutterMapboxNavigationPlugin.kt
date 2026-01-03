@@ -106,6 +106,21 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
             "enableOfflineRouting" -> {
                 downloadRegionForOfflineRouting(call, result)
             }
+            "addMarkers" -> {
+                addMarkers(call, result)
+            }
+            "updateMarkers" -> {
+                updateMarkers(call, result)
+            }
+            "removeMarkers" -> {
+                removeMarkers(call, result)
+            }
+            "clearAllMarkers" -> {
+                clearAllMarkers(result)
+            }
+            "setClusteringOptions" -> {
+                setClusteringOptions(call, result)
+            }
             else -> result.notImplemented()
         }
     }
@@ -280,6 +295,104 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
         // To change body of created functions use File | Settings | File Templates.
     }
 
+    private fun addMarkers(call: MethodCall, result: Result) {
+        val arguments = call.arguments as? Map<*, *>
+        val markersList = arguments?.get("markers") as? List<Map<*, *>>
+        val clusteringOptions = arguments?.get("clustering") as? Map<*, *>
+        
+        if (markersList == null || currentActivity == null) {
+            result.success(false)
+            return
+        }
+        
+        // Convert to format expected by NavigationLauncher
+        val markersData = markersList.map { marker ->
+            mapOf(
+                "id" to (marker["id"] as? String ?: ""),
+                "latitude" to (marker["latitude"] as? Double ?: 0.0),
+                "longitude" to (marker["longitude"] as? Double ?: 0.0),
+                "title" to (marker["title"] as? String),
+                "subtitle" to (marker["subtitle"] as? String),
+                "iconSource" to (marker["iconSource"] as? String ?: "defaultIcon"),
+                "iconData" to (marker["iconData"] as? String),
+                "iconWidth" to ((marker["iconWidth"] as? Number)?.toInt() ?: 40),
+                "iconHeight" to ((marker["iconHeight"] as? Number)?.toInt() ?: 40),
+                "color" to ((marker["color"] as? Number)?.toInt())
+            )
+        }
+        
+        val clusteringData = clusteringOptions?.let {
+            mapOf(
+                "enabled" to (it["enabled"] as? Boolean ?: true),
+                "clusterRadius" to ((it["clusterRadius"] as? Number)?.toInt() ?: 50),
+                "clusterMaxZoom" to ((it["clusterMaxZoom"] as? Number)?.toInt() ?: 14)
+            )
+        }
+        
+        NavigationLauncher.addMarkers(currentActivity!!, markersData, clusteringData)
+        result.success(true)
+    }
+    
+    private fun updateMarkers(call: MethodCall, result: Result) {
+        val arguments = call.arguments as? Map<*, *>
+        val markersList = arguments?.get("markers") as? List<Map<*, *>>
+        
+        if (markersList == null || currentActivity == null) {
+            result.success(false)
+            return
+        }
+        
+        val markersData = markersList.map { marker ->
+            mapOf(
+                "id" to (marker["id"] as? String ?: ""),
+                "latitude" to (marker["latitude"] as? Double ?: 0.0),
+                "longitude" to (marker["longitude"] as? Double ?: 0.0)
+            )
+        }
+        
+        NavigationLauncher.updateMarkers(currentActivity!!, markersData)
+        result.success(true)
+    }
+    
+    private fun removeMarkers(call: MethodCall, result: Result) {
+        val arguments = call.arguments as? Map<*, *>
+        val markerIds = arguments?.get("markerIds") as? List<String>
+        
+        if (markerIds == null || currentActivity == null) {
+            result.success(false)
+            return
+        }
+        
+        NavigationLauncher.removeMarkers(currentActivity!!, markerIds)
+        result.success(true)
+    }
+    
+    private fun clearAllMarkers(result: Result) {
+        if (currentActivity == null) {
+            result.success(false)
+            return
+        }
+        
+        NavigationLauncher.clearAllMarkers(currentActivity!!)
+        result.success(true)
+    }
+    
+    private fun setClusteringOptions(call: MethodCall, result: Result) {
+        val arguments = call.arguments as? Map<*, *>
+        
+        if (arguments == null || currentActivity == null) {
+            result.success(false)
+            return
+        }
+        
+        val enabled = arguments["enabled"] as? Boolean ?: true
+        val radius = (arguments["clusterRadius"] as? Number)?.toInt() ?: 50
+        val maxZoom = (arguments["clusterMaxZoom"] as? Number)?.toInt() ?: 14
+        
+        NavigationLauncher.setClusteringOptions(currentActivity!!, enabled, radius, maxZoom)
+        result.success(true)
+    }
+    
     fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,

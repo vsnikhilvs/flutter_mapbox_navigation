@@ -111,4 +111,105 @@ class MapBoxNavigation {
     return FlutterMapboxNavigationPlatform.instance
         .registerRouteEventListener(listener);
   }
+
+  /// Add multiple markers to the navigation map
+  ///
+  /// [markers] List of markers to add. Each marker must have a unique id.
+  /// [clustering] Optional clustering configuration. If not provided, default
+  /// clustering will be used (enabled by default).
+  ///
+  /// Example:
+  /// ```dart
+  /// await MapBoxNavigation.instance.addMarkers(
+  ///   markers: [
+  ///     MapMarker(
+  ///       id: 'user1',
+  ///       latitude: 37.7749,
+  ///       longitude: -122.4194,
+  ///       title: 'User 1',
+  ///       iconSource: MarkerIconSource.networkUrl,
+  ///       iconData: 'https://example.com/avatar.png',
+  ///     ),
+  ///   ],
+  /// );
+  /// ```
+  Future<bool?> addMarkers({
+    required List<MapMarker> markers,
+    ClusteringOptions? clustering,
+  }) async {
+    return FlutterMapboxNavigationPlatform.instance.addMarkers(
+      markers: markers,
+      clustering: clustering,
+    );
+  }
+
+  /// Update existing markers with new positions
+  ///
+  /// [markers] List of markers to update. Each marker must have an existing id.
+  /// Only markers with changed positions will be updated for performance.
+  ///
+  /// Example:
+  /// ```dart
+  /// await MapBoxNavigation.instance.updateMarkers(
+  ///   markers: [
+  ///     MapMarker(
+  ///       id: 'user1',
+  ///       latitude: 37.7750, // Updated position
+  ///       longitude: -122.4195,
+  ///     ),
+  ///   ],
+  /// );
+  /// ```
+  Future<bool?> updateMarkers({required List<MapMarker> markers}) async {
+    return FlutterMapboxNavigationPlatform.instance.updateMarkers(
+      markers: markers,
+    );
+  }
+
+  /// Remove markers by their ids
+  ///
+  /// [markerIds] List of marker ids to remove from the map.
+  ///
+  /// Example:
+  /// ```dart
+  /// await MapBoxNavigation.instance.removeMarkers(
+  ///   markerIds: ['user1', 'user2'],
+  /// );
+  /// ```
+  Future<bool?> removeMarkers({required List<String> markerIds}) async {
+    return FlutterMapboxNavigationPlatform.instance.removeMarkers(
+      markerIds: markerIds,
+    );
+  }
+
+  /// Clear all markers from the navigation map
+  ///
+  /// Example:
+  /// ```dart
+  /// await MapBoxNavigation.instance.clearAllMarkers();
+  /// ```
+  Future<bool?> clearAllMarkers() async {
+    return FlutterMapboxNavigationPlatform.instance.clearAllMarkers();
+  }
+
+  /// Set clustering options for markers
+  ///
+  /// [options] Clustering configuration. This affects how markers are grouped
+  /// together at different zoom levels.
+  ///
+  /// Example:
+  /// ```dart
+  /// await MapBoxNavigation.instance.setClusteringOptions(
+  ///   ClusteringOptions(
+  ///     enabled: true,
+  ///     clusterRadius: 50,
+  ///     clusterMaxZoom: 14,
+  ///   ),
+  /// );
+  /// ```
+  Future<bool?> setClusteringOptions(ClusteringOptions options) async {
+    return FlutterMapboxNavigationPlatform.instance.setClusteringOptions(
+      options,
+    );
+  }
 }

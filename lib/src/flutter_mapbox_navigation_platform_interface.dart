@@ -102,4 +102,43 @@ abstract class FlutterMapboxNavigationPlatform extends PlatformInterface {
       'registerEventListener() has not been implemented.',
     );
   }
+
+  /// Add multiple markers to the navigation map
+  ///
+  /// [markers] List of markers to add
+  /// [clustering] Optional clustering configuration
+  Future<bool?> addMarkers({
+    required List<MapMarker> markers,
+    ClusteringOptions? clustering,
+  }) async {
+    throw UnimplementedError('addMarkers() has not been implemented.');
+  }
+
+  /// Update existing markers with new positions
+  ///
+  /// [markers] List of markers to update (must have existing ids)
+  Future<bool?> updateMarkers({required List<MapMarker> markers}) async {
+    throw UnimplementedError('updateMarkers() has not been implemented.');
+  }
+
+  /// Remove markers by their ids
+  ///
+  /// [markerIds] List of marker ids to remove
+  Future<bool?> removeMarkers({required List<String> markerIds}) async {
+    throw UnimplementedError('removeMarkers() has not been implemented.');
+  }
+
+  /// Clear all markers from the map
+  Future<bool?> clearAllMarkers() async {
+    throw UnimplementedError('clearAllMarkers() has not been implemented.');
+  }
+
+  /// Set clustering options for markers
+  ///
+  /// [options] Clustering configuration
+  Future<bool?> setClusteringOptions(ClusteringOptions options) async {
+    throw UnimplementedError(
+      'setClusteringOptions() has not been implemented.',
+    );
+  }
 }

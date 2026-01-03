@@ -27,6 +27,10 @@ public class FlutterMapboxNavigationView : NavigationFactory, FlutterPlatformVie
 
     private let passiveLocationManager = PassiveLocationManager()
     private lazy var passiveLocationProvider = PassiveLocationProvider(locationManager: passiveLocationManager)
+    
+    // Marker management
+    private var markerManager: MarkerManager?
+    private var iconLoader: IconLoader?
 
     init(messenger: FlutterBinaryMessenger, frame: CGRect, viewId: Int64, args: Any?)
     {
@@ -83,6 +87,26 @@ public class FlutterMapboxNavigationView : NavigationFactory, FlutterPlatformVie
             else if(call.method == "reCenter"){
                 //used to recenter map from user action during navigation
                 strongSelf.navigationMapView.navigationCamera.follow()
+            }
+            else if(call.method == "addMarkers")
+            {
+                strongSelf.addMarkers(arguments: arguments, result: result)
+            }
+            else if(call.method == "updateMarkers")
+            {
+                strongSelf.updateMarkers(arguments: arguments, result: result)
+            }
+            else if(call.method == "removeMarkers")
+            {
+                strongSelf.removeMarkers(arguments: arguments, result: result)
+            }
+            else if(call.method == "clearAllMarkers")
+            {
+                strongSelf.clearAllMarkers(result: result)
+            }
+            else if(call.method == "setClusteringOptions")
+            {
+                strongSelf.setClusteringOptions(arguments: arguments, result: result)
             }
             else
             {
@@ -151,6 +175,19 @@ public class FlutterMapboxNavigationView : NavigationFactory, FlutterPlatformVie
             onTapGesture.numberOfTapsRequired = 1
             onTapGesture.delegate = self
             navigationMapView?.addGestureRecognizer(onTapGesture)
+        }
+        
+        // Initialize marker manager when map style loads
+        iconLoader = IconLoader()
+        navigationMapView.mapView.mapboxMap.onStyleLoaded.observe { [weak self] _ in
+            guard let strongSelf = self, let iconLoader = strongSelf.iconLoader else { return }
+            strongSelf.markerManager = MarkerManager(
+                mapView: strongSelf.navigationMapView.mapView,
+                iconLoader: iconLoader
+            )
+            if let style = try? strongSelf.navigationMapView.mapView.mapboxMap.style {
+                strongSelf.markerManager?.initialize(style: style)
+            }
         }
     }
 
@@ -365,6 +402,76 @@ public class FlutterMapboxNavigationView : NavigationFactory, FlutterPlatformVie
         // Animate the camera movement over 5 seconds.
         //navigationMapView.mapView.mapboxMap.setCamera(to: CameraOptions(center: navigationMapView.mapView.ma, zoom: 13.0))
                                        //(camera, withDuration: duration, animationTimingFunction: CAMediaTimingFunction(name: CAMediaTimingFunctionName.easeInEaseOut))
+    }
+    
+    // Marker methods
+    private func addMarkers(arguments: NSDictionary?, result: @escaping FlutterResult) {
+        guard let markersList = arguments?["markers"] as? [[String: Any]],
+              let markerManager = markerManager else {
+            result(false)
+            return
+        }
+        
+        let clusteringOptions = arguments?["clustering"] as? [String: Any]
+        
+        markerManager.addMarkers(
+            markersList: markersList,
+            clusteringOptions: clusteringOptions
+        ) { success in
+            result(success)
+        }
+    }
+    
+    private func updateMarkers(arguments: NSDictionary?, result: @escaping FlutterResult) {
+        guard let markersList = arguments?["markers"] as? [[String: Any]],
+              let markerManager = markerManager else {
+            result(false)
+            return
+        }
+        
+        markerManager.updateMarkers(markersList: markersList)
+        result(true)
+    }
+    
+    private func removeMarkers(arguments: NSDictionary?, result: @escaping FlutterResult) {
+        guard let markerIds = arguments?["markerIds"] as? [String],
+              let markerManager = markerManager else {
+            result(false)
+            return
+        }
+        
+        markerManager.removeMarkers(markerIds: markerIds)
+        result(true)
+    }
+    
+    private func clearAllMarkers(result: @escaping FlutterResult) {
+        guard let markerManager = markerManager else {
+            result(false)
+            return
+        }
+        
+        markerManager.clearAllMarkers()
+        result(true)
+    }
+    
+    private func setClusteringOptions(arguments: NSDictionary?, result: @escaping FlutterResult) {
+        guard let arguments = arguments,
+              let markerManager = markerManager else {
+            result(false)
+            return
+        }
+        
+        let enabled = arguments["enabled"] as? Bool ?? true
+        let radius = (arguments["clusterRadius"] as? NSNumber)?.intValue ?? 50
+        let maxZoom = (arguments["clusterMaxZoom"] as? NSNumber)?.intValue ?? 14
+        
+        markerManager.setClusteringOptions(enabled: enabled, radius: radius, maxZoom: maxZoom)
+        result(true)
+    }
+    
+    deinit {
+        markerManager?.dispose()
+        iconLoader?.clearCache()
     }
 
 }

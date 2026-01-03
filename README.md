@@ -223,11 +223,189 @@ Add the following to your `info.plist` file
 |:---:|:---:|
 | Embedded iOS View | Embedded Android View |
 
+## Multiple Markers Support
+
+The plugin now supports adding multiple user markers to both full-screen and embedded navigation views. This is useful for displaying multiple users' locations in real-time during navigation.
+
+### Features
+
+- **Multiple Markers**: Add up to 50 markers simultaneously
+- **Custom Icons**: Support for network URLs, asset paths, and base64 encoded images
+- **Real-time Updates**: Update marker positions efficiently with throttling
+- **Clustering**: Automatic marker clustering at different zoom levels
+- **Performance Optimized**: Batch operations, caching, and update throttling
+
+### Adding Markers
+
+#### Full-Screen Navigation
+
+```dart
+// Create markers
+final markers = [
+  MapMarker(
+    id: 'user1',
+    latitude: 37.7749,
+    longitude: -122.4194,
+    title: 'User 1',
+    iconSource: MarkerIconSource.networkUrl,
+    iconData: 'https://example.com/avatar1.png',
+    iconWidth: 40,
+    iconHeight: 40,
+  ),
+  MapMarker(
+    id: 'user2',
+    latitude: 37.7849,
+    longitude: -122.4294,
+    title: 'User 2',
+    iconSource: MarkerIconSource.assetPath,
+    iconData: 'assets/user_icon.png',
+  ),
+];
+
+// Add markers with optional clustering
+await MapBoxNavigation.instance.addMarkers(
+  markers: markers,
+  clustering: ClusteringOptions(
+    enabled: true,
+    clusterRadius: 50,
+    clusterMaxZoom: 14,
+  ),
+);
+```
+
+#### Embedded Navigation
+
+```dart
+// Using the embedded controller
+await _controller.addMarkers(
+  markers: markers,
+  clustering: ClusteringOptions(enabled: true),
+);
+```
+
+### Updating Marker Positions
+
+Update marker positions in real-time:
+
+```dart
+final updatedMarkers = [
+  MapMarker(
+    id: 'user1',
+    latitude: 37.7750, // Updated position
+    longitude: -122.4195,
+  ),
+];
+
+// Full-screen navigation
+await MapBoxNavigation.instance.updateMarkers(markers: updatedMarkers);
+
+// Embedded navigation
+await _controller.updateMarkers(markers: updatedMarkers);
+```
+
+### Removing Markers
+
+```dart
+// Remove specific markers
+await MapBoxNavigation.instance.removeMarkers(
+  markerIds: ['user1', 'user2'],
+);
+
+// Clear all markers
+await MapBoxNavigation.instance.clearAllMarkers();
+```
+
+### Icon Sources
+
+Markers support multiple icon sources:
+
+```dart
+// Network URL
+MapMarker(
+  id: 'user1',
+  latitude: 37.7749,
+  longitude: -122.4194,
+  iconSource: MarkerIconSource.networkUrl,
+  iconData: 'https://example.com/icon.png',
+)
+
+// Asset path
+MapMarker(
+  id: 'user2',
+  latitude: 37.7849,
+  longitude: -122.4294,
+  iconSource: MarkerIconSource.assetPath,
+  iconData: 'assets/marker_icon.png',
+)
+
+// Base64 string
+MapMarker(
+  id: 'user3',
+  latitude: 37.7949,
+  longitude: -122.4394,
+  iconSource: MarkerIconSource.base64,
+  iconData: 'iVBORw0KGgoAAAANSUhEUgAA...', // Base64 encoded image
+)
+
+// Default icon with color tint
+MapMarker(
+  id: 'user4',
+  latitude: 37.8049,
+  longitude: -122.4494,
+  iconSource: MarkerIconSource.defaultIcon,
+  color: 0xFF2196F3, // Blue color
+)
+```
+
+### Clustering Options
+
+Configure marker clustering behavior:
+
+```dart
+await MapBoxNavigation.instance.setClusteringOptions(
+  ClusteringOptions(
+    enabled: true,        // Enable/disable clustering
+    clusterRadius: 50,    // Cluster radius in pixels
+    clusterMaxZoom: 14,   // Max zoom level for clustering
+  ),
+);
+```
+
+### Performance Considerations
+
+- **Batch Updates**: Marker operations are automatically batched for better performance
+- **Update Throttling**: Position updates are throttled to 2 updates per second
+- **Position Threshold**: Only markers that moved more than 5 meters are updated
+- **Icon Caching**: Icons are cached (max 50 entries) to reduce network/disk access
+- **Clustering**: Automatically enabled when more than 10 markers are present
+
+### Example: Real-time User Tracking
+
+```dart
+// Set up periodic updates
+Timer.periodic(Duration(seconds: 2), (timer) async {
+  final userLocations = await fetchUserLocations();
+  
+  final markers = userLocations.map((user) => MapMarker(
+    id: user.id,
+    latitude: user.latitude,
+    longitude: user.longitude,
+    title: user.name,
+    iconSource: MarkerIconSource.networkUrl,
+    iconData: user.avatarUrl,
+  )).toList();
+  
+  // Update markers (only changed positions will be updated)
+  await MapBoxNavigation.instance.updateMarkers(markers: markers);
+});
+```
+
 ## To Do
 * [DONE] Android Implementation
 * [DONE] Add more settings like Navigation Mode (driving, walking, etc)
 * [DONE] Stream Events like relevant navigation notifications, metrics, current location, etc. 
 * [DONE] Embeddable Navigation View 
+* [DONE] Multiple Markers Support
 * Offline Routing
 
 <!-- Links -->
