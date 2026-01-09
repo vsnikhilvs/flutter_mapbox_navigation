@@ -24,7 +24,7 @@ class MapBoxNavigation {
     bannerInstructionsEnabled: true,
     allowsUTurnAtWayPoints: true,
     mode: MapBoxNavigationMode.drivingWithTraffic,
-    units: VoiceUnits.imperial,
+    units: VoiceUnits.metric,
     simulateRoute: false,
     animateBuildRoute: true,
     longPressDestinationEnabled: true,

@@ -327,7 +327,11 @@ public class FlutterMapboxNavigationView : NavigationFactory, FlutterPlatformVie
         if(_mapStyleUrlNight != nil){
             nightStyle.mapStyleURL = URL(string: _mapStyleUrlNight!)!
         }
-        let navigationOptions = NavigationOptions(styles: [dayStyle, nightStyle], navigationService: navigationService)
+        
+        // Configure distance formatter based on voice units setting
+        var navigationOptions = NavigationOptions(styles: [dayStyle, nightStyle], navigationService: navigationService)
+        let measurementSystem: MeasurementSystem = _voiceUnits == "imperial" ? .imperial : .metric
+        navigationOptions.distanceFormatter = DistanceFormatter(approximate: true, measurementSystem: measurementSystem)
 
         // Remove previous navigation view and controller if any
         if(_navigationViewController?.view != nil){

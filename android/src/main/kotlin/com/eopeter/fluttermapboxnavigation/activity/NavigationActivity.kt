@@ -298,13 +298,13 @@ class NavigationActivity : AppCompatActivity() {
         MapboxNavigationApp.current()!!.requestRoutes(
             routeOptions = RouteOptions.builder()
                 .applyDefaultNavigationOptions()
-                .applyLanguageAndVoiceUnitOptions(this)
+                // Removed applyLanguageAndVoiceUnitOptions to manually control units
                 .coordinatesList(waypointSet.coordinatesList())
                 .waypointIndicesList(waypointSet.waypointsIndices())
                 .waypointNamesList(waypointSet.waypointsNames())
                 .language(FlutterMapboxNavigationPlugin.navigationLanguage)
                 .alternatives(FlutterMapboxNavigationPlugin.showAlternateRoutes)
-                .voiceUnits(FlutterMapboxNavigationPlugin.navigationVoiceUnits)
+                .voiceUnits(FlutterMapboxNavigationPlugin.navigationVoiceUnits) // Explicitly set units from Flutter
                 .bannerInstructions(FlutterMapboxNavigationPlugin.bannerInstructionsEnabled)
                 .voiceInstructions(FlutterMapboxNavigationPlugin.voiceInstructionsEnabled)
                 .steps(true)

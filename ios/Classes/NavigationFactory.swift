@@ -27,7 +27,7 @@ public class NavigationFactory : NSObject, FlutterStreamHandler
     var _allowsUTurnAtWayPoints: Bool?
     var _isOptimized = false
     var _language = "en"
-    var _voiceUnits = "imperial"
+    var _voiceUnits = "metric"
     var _mapStyleUrlDay: String?
     var _mapStyleUrlNight: String?
     var _zoom: Double = 13.0
@@ -146,7 +146,11 @@ public class NavigationFactory : NSObject, FlutterStreamHandler
                     if(strongSelf._mapStyleUrlNight != nil){
                         nightStyle.mapStyleURL = URL(string: strongSelf._mapStyleUrlNight!)!
                     }
-                    let navigationOptions = NavigationOptions(styles: [dayStyle, nightStyle], navigationService: navigationService)
+                    
+                    // Configure distance formatter based on voice units setting
+                    var navigationOptions = NavigationOptions(styles: [dayStyle, nightStyle], navigationService: navigationService)
+                    let measurementSystem: MeasurementSystem = strongSelf._voiceUnits == "imperial" ? .imperial : .metric
+                    navigationOptions.distanceFormatter = DistanceFormatter(approximate: true, measurementSystem: measurementSystem)
                     if (isUpdatingWaypoints) {
                         strongSelf._navigationViewController?.navigationService.router.updateRoute(with: IndexedRouteResponse(routeResponse: response, routeIndex: 0), routeOptions: strongSelf._options) { success in
                             if (success) {

@@ -123,14 +123,14 @@ open class TurnByTurn(
             routeOptions = RouteOptions
                 .builder()
                 .applyDefaultNavigationOptions(navigationMode)
-                .applyLanguageAndVoiceUnitOptions(context)
+                // Removed applyLanguageAndVoiceUnitOptions to manually control units
                 .coordinatesList(this.addedWaypoints.coordinatesList())
                 .waypointIndicesList(this.addedWaypoints.waypointsIndices())
                 .waypointNamesList(this.addedWaypoints.waypointsNames())
                 .language(navigationLanguage)
                 .alternatives(alternatives)
                 .steps(true)
-                .voiceUnits(navigationVoiceUnits)
+                .voiceUnits(navigationVoiceUnits) // Explicitly set units from Flutter
                 .bannerInstructions(bannerInstructionsEnabled)
                 .voiceInstructions(voiceInstructionsEnabled)
                 .build(),
@@ -372,7 +372,7 @@ open class TurnByTurn(
     private var mapStyleUrlDay: String? = null
     private var mapStyleUrlNight: String? = null
     private var navigationLanguage = "en"
-    private var navigationVoiceUnits = DirectionsCriteria.IMPERIAL
+    private var navigationVoiceUnits = DirectionsCriteria.METRIC
     private var zoom = 15.0
     private var bearing = 0.0
     private var tilt = 0.0
