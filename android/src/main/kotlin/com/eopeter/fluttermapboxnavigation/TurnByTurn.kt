@@ -263,6 +263,15 @@ open class TurnByTurn(
         this@TurnByTurn.binding.navigationView.customizeViewOptions {
             mapStyleUriDay = this@TurnByTurn.mapStyleUrlDay
             mapStyleUriNight = this@TurnByTurn.mapStyleUrlNight
+            // Set distance units for UI display based on user preference
+            distanceFormatterOptions = com.mapbox.navigation.base.formatter.DistanceFormatterOptions.Builder(this@TurnByTurn.context)
+                .unitType(
+                    if (this@TurnByTurn.navigationVoiceUnits == DirectionsCriteria.IMPERIAL)
+                        com.mapbox.navigation.base.formatter.UnitType.IMPERIAL
+                    else
+                        com.mapbox.navigation.base.formatter.UnitType.METRIC
+                )
+                .build()
         }           
 
         this.initialLatitude = arguments["initialLatitude"] as? Double

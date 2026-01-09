@@ -125,13 +125,22 @@ class NavigationActivity : AppCompatActivity() {
         // Initialize BroadcastReceivers
         initReceivers()
 
-        // Set map style
+        // Set map style and distance units
         var styleUrlDay = FlutterMapboxNavigationPlugin.mapStyleUrlDay ?: Style.MAPBOX_STREETS
         var styleUrlNight = FlutterMapboxNavigationPlugin.mapStyleUrlNight ?: Style.DARK
         binding.navigationView.customizeViewStyles {}
         binding.navigationView.customizeViewOptions {
             mapStyleUriDay = styleUrlDay
             mapStyleUriNight = styleUrlNight
+            // Set distance units for UI display based on user preference
+            distanceFormatterOptions = com.mapbox.navigation.base.formatter.DistanceFormatterOptions.Builder(this@NavigationActivity)
+                .unitType(
+                    if (FlutterMapboxNavigationPlugin.navigationVoiceUnits == com.mapbox.api.directions.v5.DirectionsCriteria.IMPERIAL)
+                        com.mapbox.navigation.base.formatter.UnitType.IMPERIAL
+                    else
+                        com.mapbox.navigation.base.formatter.UnitType.METRIC
+                )
+                .build()
         }
         
         // Initialize marker manager when map style loads
