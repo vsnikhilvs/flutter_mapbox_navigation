@@ -146,21 +146,16 @@ class MarkerManager(
             
             val point = Point.fromLngLat(longitude, latitude)
             
-            // Load icon
-            val iconBitmap = iconLoader.loadIcon(iconSource, iconData, iconWidth, iconHeight, color)
+            // Load icon (currently unused because default style icon is more reliable)
+            // val iconBitmap = iconLoader.loadIcon(iconSource, iconData, iconWidth, iconHeight, color)
             
-            // Create annotation option
+            // Create annotation option with a built-in Streets style icon
             val annotationOption = PointAnnotationOptions()
                 .withPoint(point)
-            
-            // Set icon if loaded
-            iconBitmap?.let {
-                // Add icon to style and use it
-                // For now, we'll use a default approach - in production, you'd add the bitmap to style
-                annotationOption.withIconImage("default-marker")
-            } ?: run {
-                annotationOption.withIconImage("default-marker")
-            }
+                // Use built-in "marker-15" from the Mapbox Streets style so it always renders
+                .withIconImage("marker-15")
+                // Apply color tint if provided
+                .withIconColor(color?.let { String.format("#%08X", it) })
             
             // Set text if title provided
             if (title != null) {
