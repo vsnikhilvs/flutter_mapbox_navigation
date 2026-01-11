@@ -100,8 +100,11 @@ class MarkerManager(
         markersList: List<Map<String, Any>>,
         clusteringOptions: Map<String, Any>? = null
     ) {
+        android.util.Log.d("MarkerManager", "=================================================")
+        android.util.Log.d("MarkerManager", "📍 Adding ${markersList.size} markers")
+        
         if (pointAnnotationManager == null) {
-            android.util.Log.w("MarkerManager", "Annotation manager not initialized")
+            android.util.Log.w("MarkerManager", "❌ Annotation manager not initialized")
             return
         }
         
@@ -112,10 +115,18 @@ class MarkerManager(
             clusterMaxZoom = it["clusterMaxZoom"] as? Int ?: 14
         }
         
+        // Log each marker
+        markersList.forEach { marker ->
+            android.util.Log.d("MarkerManager", "Marker: ID=${marker["id"]}, Lat=${marker["latitude"]}, Lng=${marker["longitude"]}, Title=${marker["title"]}")
+        }
+        
         // Process markers in batches for performance
         markersList.chunked(BATCH_SIZE).forEach { batch ->
             addMarkerBatch(batch)
         }
+        
+        android.util.Log.d("MarkerManager", "✅ Markers added successfully")
+        android.util.Log.d("MarkerManager", "=================================================")
     }
     
     private suspend fun addMarkerBatch(batch: List<Map<String, Any>>) {
@@ -179,16 +190,21 @@ class MarkerManager(
         
         // Create annotations on main thread
         Handler(Looper.getMainLooper()).post {
+            android.util.Log.d("MarkerManager", "Creating ${annotationOptions.size} annotations on map")
             pointAnnotationManager?.create(annotationOptions)?.let { createdAnnotations ->
+                android.util.Log.d("MarkerManager", "✅ Created ${createdAnnotations.size} annotations")
                 // Store annotation IDs
                 createdAnnotations.forEachIndexed { index, annotation ->
                     if (index < batch.size) {
                         val markerId = batch[index]["id"] as? String
                         markerId?.let {
                             markers[it]?.annotationId = annotation.id.toString()
+                            android.util.Log.d("MarkerManager", "Annotation created: markerID=$it, annotationID=${annotation.id}")
                         }
                     }
                 }
+            } ?: run {
+                android.util.Log.e("MarkerManager", "❌ Failed to create annotations - returned null")
             }
         }
     }
@@ -197,10 +213,14 @@ class MarkerManager(
      * Update marker positions
      */
     fun updateMarkers(markersList: List<Map<String, Any>>) {
+        android.util.Log.d("MarkerManager", "=================================================")
+        android.util.Log.d("MarkerManager", "🔄 Updating ${markersList.size} markers")
+        
         val currentTime = System.currentTimeMillis()
         
         // Throttle updates
         if (currentTime - lastUpdateTime < UPDATE_THROTTLE_MS) {
+            android.util.Log.d("MarkerManager", "⏱️ Throttling update (too soon since last update)")
             // Queue update
             markersList.forEach { markerData ->
                 val id = markerData["id"] as? String ?: return@forEach
