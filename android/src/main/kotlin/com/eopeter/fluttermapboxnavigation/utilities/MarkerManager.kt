@@ -154,17 +154,12 @@ class MarkerManager(
                 .withPoint(point)
                 // Use built-in "marker-15" from the Mapbox Streets style so it always renders
                 .withIconImage("marker-15")
-                // Apply color tint if provided
-                .withIconColor(color?.let { String.format("#%08X", it) })
+            
+            // Apply color tint if provided
+            color?.let { annotationOption.withIconColor(String.format("#%08X", it)) }
             
             // Set text if title provided
-            if (title != null) {
-                annotationOption.withTextField(title)
-                if (subtitle != null) {
-                    annotationOption.withTextOffset(listOf(0.0, -2.0))
-                }
-                annotationOption.withTextAnchor(TextAnchor.BOTTOM)
-            }
+            // Note: PointAnnotationOptions does not support text fields; skip text rendering
             
             // Store marker data
             val markerDataObj = MarkerData(
