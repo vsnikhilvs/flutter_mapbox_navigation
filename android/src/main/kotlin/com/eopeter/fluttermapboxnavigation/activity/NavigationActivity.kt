@@ -20,6 +20,8 @@ import com.eopeter.fluttermapboxnavigation.utilities.IconLoader
 import com.eopeter.fluttermapboxnavigation.utilities.MarkerManager
 import com.eopeter.fluttermapboxnavigation.utilities.PluginUtilities
 import com.eopeter.fluttermapboxnavigation.utilities.PluginUtilities.Companion.sendEvent
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -68,6 +70,10 @@ class NavigationActivity : AppCompatActivity() {
     private var markerManager: MarkerManager? = null
     private var iconLoader: IconLoader? = null
     private var markersBroadcastReceiver: BroadcastReceiver? = null
+    
+    // Queue for marker operations that arrive before markerManager is ready
+    private val pendingMarkerOperations = mutableListOf<() -> Unit>()
+    private var isMarkerManagerReady = false
 
     private val navigationStateListener = object : NavigationViewListener() {
         override fun onFreeDrive() {}
@@ -81,6 +87,10 @@ class NavigationActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        android.util.Log.w("NavigationActivity", "=================================================")
+        android.util.Log.w("NavigationActivity", "🚀 NavigationActivity onCreate called")
+        android.util.Log.w("NavigationActivity", "=================================================")
+        
         setTheme(R.style.AppTheme)
         binding = NavigationActivityBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -144,20 +154,33 @@ class NavigationActivity : AppCompatActivity() {
         }
         
         // Initialize marker manager when map style loads
+        android.util.Log.w("NavigationActivity", "📍 Initializing IconLoader and MapViewObserver for markers")
         iconLoader = IconLoader(this.applicationContext)
         // Use MapViewObserver to get MapView when it's attached
         binding.navigationView.registerMapObserver(object : MapViewObserver() {
             override fun onAttached(mapView: MapView) {
                 super.onAttached(mapView)
+                android.util.Log.w("NavigationActivity", "📍 MapView attached")
                 val mapboxMap = mapView.getMapboxMap()
-                // Initialize marker manager when style is loaded
-                mapboxMap.loadStyleUri(Style.MAPBOX_STREETS) { style ->
-                    markerManager = MarkerManager(
-                        this@NavigationActivity.applicationContext,
-                        mapView,
-                        iconLoader!!
-                    )
-                    markerManager?.initialize(style)
+                
+                // IMPORTANT: Use the existing style from NavigationView, don't load a new one!
+                // Loading MAPBOX_STREETS would overwrite the navigation style
+                val existingStyle = mapboxMap.getStyle()
+                if (existingStyle != null) {
+                    android.util.Log.w("NavigationActivity", "📍 Using existing style: ${existingStyle.styleURI}")
+                    // Try to initialize immediately, with retry if annotation plugin not ready
+                    initializeMarkerManagerWithRetry(mapView, existingStyle)
+                } else {
+                    // Style not loaded yet, use getStyle callback
+                    android.util.Log.w("NavigationActivity", "📍 Style not loaded yet, waiting for style...")
+                    mapboxMap.getStyle { style ->
+                        if (!isMarkerManagerReady || !(markerManager?.isInitialized() ?: false)) {
+                            android.util.Log.w("NavigationActivity", "📍 Style callback received: ${style.styleURI}")
+                            initializeMarkerManagerWithRetry(mapView, style)
+                        } else {
+                            android.util.Log.w("NavigationActivity", "📍 Style callback received but MarkerManager already initialized, skipping")
+                        }
+                    }
                 }
             }
         })
@@ -211,6 +234,8 @@ class NavigationActivity : AppCompatActivity() {
         markerManager = null
         iconLoader?.clearCache()
         iconLoader = null
+        isMarkerManagerReady = false
+        pendingMarkerOperations.clear()
     }
 
     private fun initReceivers() {
@@ -239,36 +264,102 @@ class NavigationActivity : AppCompatActivity() {
                 when (intent.action) {
                     NavigationLauncher.KEY_ADD_MARKERS -> {
                         val markersList = intent.getSerializableExtra("markers") as? List<Map<*, *>>
+                        // Use WARN so it shows up even when logcat is noisy.
+                        android.util.Log.w("NavigationActivity", "📍 Broadcast received: ADD_MARKERS")
+                        android.util.Log.w("NavigationActivity", "   markersList size: ${markersList?.size}")
+                        android.util.Log.w("NavigationActivity", "   markerManager ready: $isMarkerManagerReady")
+                        android.util.Log.w("NavigationActivity", "   markerManager actually initialized: ${markerManager?.isInitialized() ?: false}")
                         val clusteringOptions = intent.getSerializableExtra("clustering") as? Map<*, *>
+                        
                         if (markersList != null) {
-                            CoroutineScope(Dispatchers.Main).launch {
-                                markerManager?.addMarkers(
-                                    markersList.map { it as Map<String, Any> },
-                                    clusteringOptions as? Map<String, Any>
-                                )
+                            val operation: () -> Unit = {
+                                android.util.Log.w("NavigationActivity", "📍 Executing ADD_MARKERS operation...")
+                                CoroutineScope(Dispatchers.Main).launch {
+                                    markerManager?.addMarkers(
+                                        markersList.map { it as Map<String, Any> },
+                                        clusteringOptions as? Map<String, Any>
+                                    )
+                                }
+                                Unit
+                            }
+                            
+                            // Double-check: both flag and actual initialization status
+                            val actuallyReady = isMarkerManagerReady && (markerManager?.isInitialized() ?: false)
+                            if (actuallyReady) {
+                                android.util.Log.w("NavigationActivity", "✅ MarkerManager ready, executing immediately")
+                                operation()
+                            } else {
+                                android.util.Log.w("NavigationActivity", "⏳ MarkerManager not ready (flag=$isMarkerManagerReady, initialized=${markerManager?.isInitialized()}), queueing operation")
+                                pendingMarkerOperations.add(operation)
                             }
                         }
                     }
                     NavigationLauncher.KEY_UPDATE_MARKERS -> {
                         val markersList = intent.getSerializableExtra("markers") as? List<Map<*, *>>
+                        android.util.Log.w("NavigationActivity", "📍 Broadcast received: UPDATE_MARKERS")
+                        android.util.Log.w("NavigationActivity", "   markersList size: ${markersList?.size}")
+                        android.util.Log.w("NavigationActivity", "   markerManager ready: $isMarkerManagerReady")
+                        android.util.Log.w("NavigationActivity", "   markerManager actually initialized: ${markerManager?.isInitialized() ?: false}")
+                        
                         if (markersList != null) {
-                            markerManager?.updateMarkers(markersList.map { it as Map<String, Any> })
+                            val operation: () -> Unit = {
+                                android.util.Log.w("NavigationActivity", "📍 Executing UPDATE_MARKERS operation...")
+                                markerManager?.updateMarkers(markersList.map { it as Map<String, Any> })
+                                Unit
+                            }
+                            
+                            // Double-check: both flag and actual initialization status
+                            val actuallyReady = isMarkerManagerReady && (markerManager?.isInitialized() ?: false)
+                            if (actuallyReady) {
+                                android.util.Log.w("NavigationActivity", "✅ MarkerManager ready, executing immediately")
+                                operation()
+                            } else {
+                                android.util.Log.w("NavigationActivity", "⏳ MarkerManager not ready (flag=$isMarkerManagerReady, initialized=${markerManager?.isInitialized()}), queueing operation")
+                                pendingMarkerOperations.add(operation)
+                            }
                         }
                     }
                     NavigationLauncher.KEY_REMOVE_MARKERS -> {
                         val markerIds = intent.getSerializableExtra("markerIds") as? List<String>
                         if (markerIds != null) {
-                            markerManager?.removeMarkers(markerIds)
+                            val operation: () -> Unit = {
+                                markerManager?.removeMarkers(markerIds)
+                                Unit
+                            }
+                            
+                            if (isMarkerManagerReady) {
+                                operation()
+                            } else {
+                                pendingMarkerOperations.add(operation)
+                            }
                         }
                     }
                     NavigationLauncher.KEY_CLEAR_ALL_MARKERS -> {
-                        markerManager?.clearAllMarkers()
+                        val operation: () -> Unit = {
+                            markerManager?.clearAllMarkers()
+                            Unit
+                        }
+                        
+                        if (isMarkerManagerReady) {
+                            operation()
+                        } else {
+                            pendingMarkerOperations.add(operation)
+                        }
                     }
                     NavigationLauncher.KEY_SET_CLUSTERING_OPTIONS -> {
                         val enabled = intent.getBooleanExtra("enabled", true)
                         val radius = intent.getIntExtra("radius", 50)
                         val maxZoom = intent.getIntExtra("maxZoom", 14)
-                        markerManager?.setClusteringOptions(enabled, radius, maxZoom)
+                        val operation: () -> Unit = {
+                            markerManager?.setClusteringOptions(enabled, radius, maxZoom)
+                            Unit
+                        }
+                        
+                        if (isMarkerManagerReady) {
+                            operation()
+                        } else {
+                            pendingMarkerOperations.add(operation)
+                        }
                     }
                 }
             }
@@ -293,8 +384,76 @@ class NavigationActivity : AppCompatActivity() {
             registerReceiver(addWayPointsBroadcastReceiver, waypointFilter)
             registerReceiver(markersBroadcastReceiver, markerFilter)
         }
+        android.util.Log.w("NavigationActivity", "✅ Broadcast receivers registered (marker actions: ADD/UPDATE/REMOVE/CLEAR/CLUSTER)")
     }
 
+    /**
+     * Initialize marker manager with retry mechanism in case annotation plugin isn't ready immediately
+     */
+    private fun initializeMarkerManagerWithRetry(mapView: MapView, style: Style, retryCount: Int = 0) {
+        val maxRetries = 5
+        val retryDelayMs = 500L
+        
+        if (isMarkerManagerReady && (markerManager?.isInitialized() ?: false)) {
+            android.util.Log.w("NavigationActivity", "MarkerManager already initialized, skipping")
+            return
+        }
+        
+        android.util.Log.w("NavigationActivity", "📍 Attempting to initialize MarkerManager (attempt ${retryCount + 1}/$maxRetries)")
+        val success = initializeMarkerManager(mapView, style)
+        
+        if (!success && retryCount < maxRetries) {
+            android.util.Log.w("NavigationActivity", "⏳ MarkerManager initialization failed, retrying in ${retryDelayMs}ms...")
+            Handler(Looper.getMainLooper()).postDelayed({
+                initializeMarkerManagerWithRetry(mapView, style, retryCount + 1)
+            }, retryDelayMs)
+        } else if (!success) {
+            android.util.Log.e("NavigationActivity", "❌ MarkerManager initialization failed after $maxRetries attempts")
+            android.util.Log.e("NavigationActivity", "   The annotation plugin is not available in NavigationView's MapView")
+        }
+    }
+    
+    private fun initializeMarkerManager(mapView: MapView, style: Style): Boolean {
+        if (isMarkerManagerReady && (markerManager?.isInitialized() ?: false)) {
+            android.util.Log.w("NavigationActivity", "MarkerManager already initialized, skipping")
+            return true
+        }
+        
+        android.util.Log.w("NavigationActivity", "📍 Initializing MarkerManager with style: ${style.styleURI}")
+        markerManager = MarkerManager(
+            this@NavigationActivity.applicationContext,
+            mapView,
+            iconLoader!!
+        )
+        
+        // ✅ Only set ready if initialization actually succeeded
+        val success = markerManager?.initialize(style) ?: false
+        isMarkerManagerReady = success
+        
+        if (success) {
+            android.util.Log.w("NavigationActivity", "✅ MarkerManager initialized and ready!")
+            
+            // Process any pending marker operations
+            if (pendingMarkerOperations.isNotEmpty()) {
+                android.util.Log.w("NavigationActivity", "📍 Processing ${pendingMarkerOperations.size} pending marker operations...")
+                pendingMarkerOperations.forEach { operation ->
+                    try {
+                        operation()
+                    } catch (e: Exception) {
+                        android.util.Log.e("NavigationActivity", "❌ Error processing pending marker operation: ${e.message}", e)
+                    }
+                }
+                pendingMarkerOperations.clear()
+                android.util.Log.w("NavigationActivity", "✅ All pending marker operations processed")
+            }
+        } else {
+            android.util.Log.e("NavigationActivity", "❌ MarkerManager initialization FAILED - PointAnnotationManager is null")
+            android.util.Log.e("NavigationActivity", "   Markers will be queued until initialization succeeds")
+        }
+        
+        return success
+    }
+    
     fun tryCancelNavigation() {
         if (isNavigationInProgress) {
             isNavigationInProgress = false
@@ -335,6 +494,11 @@ class NavigationActivity : AppCompatActivity() {
                     }
                     binding.navigationView.api.routeReplayEnabled(FlutterMapboxNavigationPlugin.simulateRoute)
                     binding.navigationView.api.startActiveGuidance(routes)
+                    
+                    // CRITICAL: Send navigation_running event to notify Flutter that navigation is ready
+                    android.util.Log.d("NavigationActivity", "🚀 Navigation started, sending NAVIGATION_RUNNING event")
+                    sendEvent(MapBoxEvents.NAVIGATION_RUNNING)
+                    android.util.Log.d("NavigationActivity", "✅ NAVIGATION_RUNNING event sent")
                 }
             }
         )

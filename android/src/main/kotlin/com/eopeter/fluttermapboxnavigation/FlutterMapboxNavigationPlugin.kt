@@ -297,10 +297,18 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
 
     private fun addMarkers(call: MethodCall, result: Result) {
         val arguments = call.arguments as? Map<*, *>
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "=================================================")
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "📍 addMarkers called from Flutter")
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "   Current activity: $currentActivity")
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "   Activity name: ${currentActivity?.javaClass?.simpleName}")
+        
         val markersList = arguments?.get("markers") as? List<Map<*, *>>
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "   Markers count: ${markersList?.size ?: 0}")
         val clusteringOptions = arguments?.get("clustering") as? Map<*, *>
         
         if (markersList == null || currentActivity == null) {
+            android.util.Log.e("FlutterMapboxNavigationPlugin", "❌ Cannot add markers - markersList or currentActivity is null")
+            android.util.Log.w("FlutterMapboxNavigationPlugin", "=================================================")
             result.success(false)
             return
         }
@@ -320,6 +328,10 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
                 "color" to ((marker["color"] as? Number)?.toInt() ?: 0)
             )
         }
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "   Prepared ${markersData.size} markers for broadcast")
+        markersData.forEach { marker ->
+            android.util.Log.w("FlutterMapboxNavigationPlugin", "      - ID: ${marker["id"]}, Pos: (${marker["latitude"]}, ${marker["longitude"]}), Icon: ${marker["iconSource"]}/${marker["iconData"]}")
+        }
         
         val clusteringData = clusteringOptions?.let {
             hashMapOf<String, Any>(
@@ -328,29 +340,43 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
                 "clusterMaxZoom" to ((it["clusterMaxZoom"] as? Number)?.toInt() ?: 14)
             )
         }
-        
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "✅ Sending broadcast to NavigationActivity...")
         NavigationLauncher.addMarkers(currentActivity!!, markersData, clusteringData)
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "✅ Broadcast sent successfully")
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "=================================================")
         result.success(true)
     }
     
     private fun updateMarkers(call: MethodCall, result: Result) {
         val arguments = call.arguments as? Map<*, *>
         val markersList = arguments?.get("markers") as? List<Map<*, *>>
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "📍 updateMarkers called from Flutter (count=${markersList?.size ?: 0}) activity=${currentActivity?.javaClass?.simpleName}")
         
         if (markersList == null || currentActivity == null) {
+            android.util.Log.e("FlutterMapboxNavigationPlugin", "❌ Cannot update markers - markersList or currentActivity is null")
             result.success(false)
             return
         }
         
+        // Include full marker payload (not only lat/lng) so native can recreate missing markers
+        // even if updateMarkers is called before addMarkers.
         val markersData = markersList.map { marker ->
             hashMapOf<String, Any>(
                 "id" to (marker["id"] as? String ?: ""),
                 "latitude" to (marker["latitude"] as? Double ?: 0.0),
-                "longitude" to (marker["longitude"] as? Double ?: 0.0)
+                "longitude" to (marker["longitude"] as? Double ?: 0.0),
+                "title" to (marker["title"] as? String ?: ""),
+                "subtitle" to (marker["subtitle"] as? String ?: ""),
+                "iconSource" to (marker["iconSource"] as? String ?: "defaultIcon"),
+                "iconData" to (marker["iconData"] as? String ?: ""),
+                "iconWidth" to ((marker["iconWidth"] as? Number)?.toInt() ?: 40),
+                "iconHeight" to ((marker["iconHeight"] as? Number)?.toInt() ?: 40),
+                "color" to ((marker["color"] as? Number)?.toInt() ?: 0)
             )
         }
         
         NavigationLauncher.updateMarkers(currentActivity!!, markersData)
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "✅ updateMarkers broadcast sent")
         result.success(true)
     }
     
@@ -369,10 +395,12 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
     
     private fun clearAllMarkers(result: Result) {
         if (currentActivity == null) {
+            android.util.Log.e("FlutterMapboxNavigationPlugin", "❌ Cannot clear markers - currentActivity is null")
             result.success(false)
             return
         }
         
+        android.util.Log.w("FlutterMapboxNavigationPlugin", "📍 clearAllMarkers called from Flutter -> broadcasting")
         NavigationLauncher.clearAllMarkers(currentActivity!!)
         result.success(true)
     }

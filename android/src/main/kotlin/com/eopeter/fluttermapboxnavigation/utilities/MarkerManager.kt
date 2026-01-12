@@ -4,17 +4,20 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import android.view.LayoutInflater
+import android.view.View
+import android.widget.ImageView
+import android.view.ViewGroup
+import com.eopeter.fluttermapboxnavigation.R
 import com.mapbox.geojson.Point
 import com.mapbox.maps.MapView
 import com.mapbox.maps.Style
-import com.mapbox.maps.extension.style.layers.properties.generated.TextAnchor
-import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManager
-import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions
-import com.mapbox.maps.plugin.annotation.generated.createPointAnnotationManager
-import com.mapbox.maps.plugin.annotation.AnnotationPlugin
+import com.mapbox.maps.viewannotation.viewAnnotationOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -37,11 +40,65 @@ class MarkerManager(
         private const val CLUSTER_ENABLED_MARKER_COUNT = 10
     }
     
-    private var pointAnnotationManager: PointAnnotationManager? = null
+    // Use ViewAnnotationManager instead of PointAnnotationManager for NavigationView compatibility
+    private val viewAnnotationMap = mutableMapOf<String, View>() // Map marker ID to View
     private val markers = ConcurrentHashMap<String, MarkerData>()
     private val pendingUpdates = mutableListOf<MarkerUpdate>()
     private var updateHandler: Handler? = Handler(Looper.getMainLooper())
     private var updateRunnable: Runnable? = null
+    private var customIconBitmap: Bitmap? = null // Cache the custom icon bitmap for direct usage
+    private var isInitialized = false
+
+    /**
+     * Create an ImageView for a marker with the specified bitmap
+     */
+    private fun createMarkerImageView(bitmap: Bitmap, width: Int, height: Int): ImageView {
+        val imageView = ImageView(context)
+        imageView.setImageBitmap(bitmap)
+        imageView.layoutParams = ViewGroup.LayoutParams(width, height)
+        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+        return imageView
+    }
+    
+    /**
+     * Create a default colored circle marker bitmap when asset loading fails
+     */
+    private fun createDefaultMarkerBitmap(width: Int, height: Int, color: Int): Bitmap {
+        // Create a simple colored circle bitmap
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            this.color = color
+            style = android.graphics.Paint.Style.FILL
+        }
+        // Draw a circle
+        val radius = (minOf(width, height) / 2).toFloat() - 2
+        canvas.drawCircle(width / 2f, height / 2f, radius, paint)
+        
+        // Add a white border
+        val borderPaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            this.color = android.graphics.Color.WHITE
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 3f
+        }
+        canvas.drawCircle(width / 2f, height / 2f, radius, borderPaint)
+        
+        return bitmap
+    }
+    
+    /**
+     * Create a default colored circle marker ImageView when asset loading fails
+     */
+    private fun createDefaultColoredMarker(width: Int, height: Int, color: Int): ImageView {
+        val bitmap = createDefaultMarkerBitmap(width, height, color)
+        val imageView = ImageView(context)
+        imageView.setImageBitmap(bitmap)
+        imageView.layoutParams = ViewGroup.LayoutParams(width, height)
+        imageView.scaleType = ImageView.ScaleType.FIT_CENTER
+        return imageView
+    }
     
     // Clustering options
     private var clusteringEnabled = true
@@ -71,44 +128,83 @@ class MarkerManager(
     
     /**
      * Initialize the marker manager when map style is loaded
+     * Uses ViewAnnotationManager which is compatible with NavigationView
+     * @return true if initialization succeeded, false otherwise
      */
-    fun initialize(style: Style) {
-        // Create point annotation manager using the annotation plugin
-        // The createPointAnnotationManager is an extension function on AnnotationPlugin
+    fun initialize(style: Style): Boolean {
+        android.util.Log.w("MarkerManager", "=================================================")
+        android.util.Log.w("MarkerManager", "🚀 Initializing MarkerManager with ViewAnnotationManager")
+        android.util.Log.w("MarkerManager", "   Style: ${style.styleURI}")
+        android.util.Log.w("MarkerManager", "   Using ViewAnnotationManager (NavigationView compatible)")
+        
         try {
-            // Get the annotation plugin from mapView's plugin registry
-            // The plugin ID for annotation plugin is typically "annotation"
-            val annotationPlugin = mapView.getPlugin("annotation") as? AnnotationPlugin
-                ?: throw IllegalStateException("AnnotationPlugin not found")
+            // ViewAnnotationManager is always available on MapView
+            // No plugin registration needed - it's built into the MapView
+            val viewAnnotationManager = mapView.viewAnnotationManager
+            android.util.Log.e("MarkerManager", "🔍 DEBUG: viewAnnotationManager = $viewAnnotationManager")
             
-            // Use the extension function to create the annotation manager
-            // The function can take mapView (as View) or just annotationConfig (null for defaults)
-            pointAnnotationManager = annotationPlugin.createPointAnnotationManager(mapView)
+            if (viewAnnotationManager == null) {
+                android.util.Log.e("MarkerManager", "❌ viewAnnotationManager is null - this should not happen")
+                android.util.Log.w("MarkerManager", "=================================================")
+                isInitialized = false
+                return false
+            }
+            
+            // Load a default participant icon bitmap immediately so updateMarkers can self-heal
+            // (create missing markers) even if addMarkers was never called.
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val bmp = iconLoader.loadIcon("assetPath", "images/marker_car.png", 40, 40, null)
+                    if (bmp != null) {
+                        customIconBitmap = bmp
+                        android.util.Log.w("MarkerManager", "✅ Preloaded default participant icon bitmap (${bmp.width}x${bmp.height})")
+                    } else {
+                        android.util.Log.w("MarkerManager", "⚠️ Failed to preload default participant icon bitmap")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("MarkerManager", "❌ Exception preloading default participant icon bitmap: ${e.message}", e)
+                }
+            }
+            
+            isInitialized = true
+            android.util.Log.w("MarkerManager", "✅ MarkerManager initialized successfully with ViewAnnotationManager")
+            android.util.Log.w("MarkerManager", "=================================================")
+            return true
         } catch (e: Exception) {
-            android.util.Log.e("MarkerManager", "Failed to create PointAnnotationManager: ${e.message}", e)
-            // If annotation manager creation fails, markers won't be displayed
-            // but the app should still function
+            android.util.Log.e("MarkerManager", "❌ Failed to initialize MarkerManager: ${e.message}", e)
+            android.util.Log.e("MarkerManager", "Stack trace: ${e.stackTraceToString()}")
+            android.util.Log.w("MarkerManager", "=================================================")
+            isInitialized = false
+            return false
         }
-        // Note: Clustering is handled by Mapbox automatically when using PointAnnotationManager
-        // with appropriate configuration
     }
     
     /**
-     * Add markers to the map
+     * Check if the marker manager is properly initialized
+     * @return true if ViewAnnotationManager is available, false otherwise
+     */
+    fun isInitialized(): Boolean {
+        return isInitialized && mapView.viewAnnotationManager != null
+    }
+    
+    /**
+     * Add markers to the map using ViewAnnotationManager
      */
     suspend fun addMarkers(
         markersList: List<Map<String, Any>>,
         clusteringOptions: Map<String, Any>? = null
     ) {
-        android.util.Log.d("MarkerManager", "=================================================")
-        android.util.Log.d("MarkerManager", "📍 Adding ${markersList.size} markers")
+        // Use WARN so it surfaces in flutter run output (debug logs are often suppressed).
+        android.util.Log.w("MarkerManager", "=================================================")
+        android.util.Log.w("MarkerManager", "📍 Adding ${markersList.size} markers using ViewAnnotationManager")
         
-        if (pointAnnotationManager == null) {
-            android.util.Log.w("MarkerManager", "❌ Annotation manager not initialized")
+        val viewAnnotationManager = mapView.viewAnnotationManager
+        if (viewAnnotationManager == null) {
+            android.util.Log.e("MarkerManager", "❌ ViewAnnotationManager not available")
             return
         }
         
-        // Update clustering options if provided
+        // Update clustering options if provided (noted for future implementation)
         clusteringOptions?.let {
             clusteringEnabled = it["enabled"] as? Boolean ?: true
             clusterRadius = it["clusterRadius"] as? Int ?: 50
@@ -125,76 +221,138 @@ class MarkerManager(
             addMarkerBatch(batch)
         }
         
-        android.util.Log.d("MarkerManager", "✅ Markers added successfully")
-        android.util.Log.d("MarkerManager", "=================================================")
+        android.util.Log.w("MarkerManager", "✅ Markers add request processed")
+        android.util.Log.w("MarkerManager", "=================================================")
     }
     
-    private suspend fun addMarkerBatch(batch: List<Map<String, Any>>) {
-        val annotationOptions = mutableListOf<PointAnnotationOptions>()
-        
-        batch.forEach { markerData ->
-            val id = markerData["id"] as? String ?: return@forEach
-            val latitude = (markerData["latitude"] as? Number)?.toDouble() ?: return@forEach
-            val longitude = (markerData["longitude"] as? Number)?.toDouble() ?: return@forEach
-            val title = markerData["title"] as? String
-            val subtitle = markerData["subtitle"] as? String
-            val iconSource = markerData["iconSource"] as? String ?: "defaultIcon"
-            val iconData = markerData["iconData"] as? String
-            val iconWidth = (markerData["iconWidth"] as? Number)?.toInt() ?: 40
-            val iconHeight = (markerData["iconHeight"] as? Number)?.toInt() ?: 40
-            val color = (markerData["color"] as? Number)?.toInt()
+    private suspend fun addMarkerBatch(
+        batch: List<Map<String, Any>>
+    ) {
+        val viewAnnotationManager = mapView.viewAnnotationManager
+        if (viewAnnotationManager == null) {
+            android.util.Log.e("MarkerManager", "❌ ViewAnnotationManager is null")
+            return
+        }
+        // Load custom icon from assets once.
+        val iconBitmap = customIconBitmap ?: run {
+            val iconSource = batch.firstOrNull()?.get("iconSource") as? String ?: "assetPath"
+            val iconData = batch.firstOrNull()?.get("iconData") as? String ?: "images/marker_car.png"
+            val iconWidth = (batch.firstOrNull()?.get("iconWidth") as? Number)?.toInt() ?: 40
+            val iconHeight = (batch.firstOrNull()?.get("iconHeight") as? Number)?.toInt() ?: 40
             
-            val point = Point.fromLngLat(longitude, latitude)
+            android.util.Log.d("MarkerManager", "Loading custom icon from assets")
+            android.util.Log.d("MarkerManager", "  iconSource: $iconSource, iconData: $iconData")
+            android.util.Log.d("MarkerManager", "  iconWidth: $iconWidth, iconHeight: $iconHeight")
             
-            // Load icon (currently unused because default style icon is more reliable)
-            // val iconBitmap = iconLoader.loadIcon(iconSource, iconData, iconWidth, iconHeight, color)
+            val loaded = withContext(Dispatchers.IO) {
+                iconLoader.loadIcon(iconSource, iconData, iconWidth, iconHeight, null)
+            }
             
-            // Create annotation option with a built-in Streets style icon
-            val annotationOption = PointAnnotationOptions()
-                .withPoint(point)
-                // Use built-in "marker-15" from the Mapbox Streets style so it always renders
-                .withIconImage("marker-15")
-            
-            // Apply color tint if provided
-            color?.let { annotationOption.withIconColor(String.format("#%08X", it)) }
-            
-            // Set text if title provided
-            // Note: PointAnnotationOptions does not support text fields; skip text rendering
-            
-            // Store marker data
-            val markerDataObj = MarkerData(
-                id = id,
-                point = point,
-                title = title,
-                subtitle = subtitle,
-                iconSource = iconSource,
-                iconData = iconData,
-                iconWidth = iconWidth,
-                iconHeight = iconHeight,
-                color = color
-            )
-            markers[id] = markerDataObj
-            
-            annotationOptions.add(annotationOption)
+            if (loaded != null) {
+                android.util.Log.d("MarkerManager", "✅ Icon bitmap loaded successfully (${loaded.width}x${loaded.height})")
+                customIconBitmap = loaded
+                loaded
+            } else {
+                android.util.Log.w("MarkerManager", "⚠️ Failed to load icon bitmap from assets")
+                null
+            }
         }
         
-        // Create annotations on main thread
+        // Create view annotations on main thread
         Handler(Looper.getMainLooper()).post {
-            android.util.Log.d("MarkerManager", "Creating ${annotationOptions.size} annotations on map")
-            pointAnnotationManager?.create(annotationOptions)?.let { createdAnnotations ->
-                android.util.Log.d("MarkerManager", "✅ Created ${createdAnnotations.size} annotations")
-                // Store annotation IDs
-                createdAnnotations.forEachIndexed { index, annotation ->
-                    if (index < batch.size) {
-                        val markerId = batch[index]["id"] as? String
-                        markerId?.let {
-                            markers[it]?.annotationId = annotation.id.toString()
-                            android.util.Log.d("MarkerManager", "Annotation created: markerID=$it, annotationID=${annotation.id}")
-                        }
+            android.util.Log.w("MarkerManager", "📍 Creating ${batch.size} view annotations on map")
+            
+            try {
+                batch.forEach { markerData ->
+                    val id = markerData["id"] as? String ?: return@forEach
+                    val latitude = (markerData["latitude"] as? Number)?.toDouble() ?: return@forEach
+                    val longitude = (markerData["longitude"] as? Number)?.toDouble() ?: return@forEach
+                    val title = markerData["title"] as? String
+                    val subtitle = markerData["subtitle"] as? String
+                    
+                    val point = Point.fromLngLat(longitude, latitude)
+                    
+                    // Skip if marker already exists
+                    if (viewAnnotationMap.containsKey(id)) {
+                        android.util.Log.d("MarkerManager", "Marker $id already exists, skipping")
+                        return@forEach
                     }
+                    
+                    // Get marker dimensions and color
+                    val iconWidth = (markerData["iconWidth"] as? Number)?.toInt() ?: 40
+                    val iconHeight = (markerData["iconHeight"] as? Number)?.toInt() ?: 40
+                    val markerColor = (markerData["color"] as? Number)?.toInt() ?: android.graphics.Color.BLUE
+                    
+                    // Use ViewAnnotationManager with the layout resource
+                    try {
+                        // Add view annotation using the layout resource
+                        val viewAnnotation = viewAnnotationManager.addViewAnnotation(
+                            resId = R.layout.marker_view_annotation,
+                            options = viewAnnotationOptions {
+                                geometry(point)
+                                offsetY(-iconHeight / 2) // Center the marker on the point
+                            }
+                        )
+                        
+                        // Get the ImageView from the inflated layout
+                        // Since the layout root IS the ImageView, we can cast it directly or use findViewById
+                        val markerImageView = if (viewAnnotation is ImageView) {
+                            viewAnnotation as ImageView
+                        } else {
+                            viewAnnotation.findViewById<ImageView>(R.id.marker_image)
+                        }
+                        
+                        if (markerImageView != null) {
+                            if (iconBitmap != null) {
+                                // Use the loaded icon bitmap
+                                markerImageView.setImageBitmap(iconBitmap)
+                                markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+                                android.util.Log.d("MarkerManager", "✅ Set custom icon bitmap on ImageView")
+                            } else {
+                                // Create and set default colored marker bitmap
+                                android.util.Log.w("MarkerManager", "⚠️ Creating default colored marker (asset not found)")
+                                val defaultBitmap = createDefaultMarkerBitmap(iconWidth, iconHeight, markerColor)
+                                markerImageView.setImageBitmap(defaultBitmap)
+                                markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+                                android.util.Log.d("MarkerManager", "✅ Set default colored marker bitmap on ImageView")
+                            }
+                        } else {
+                            android.util.Log.e("MarkerManager", "❌ Could not get ImageView from view annotation")
+                            android.util.Log.e("MarkerManager", "   viewAnnotation type: ${viewAnnotation.javaClass.name}")
+                        }
+                        
+                        // Store the view annotation for later updates/removal
+                        viewAnnotationMap[id] = viewAnnotation
+                        
+                        android.util.Log.w("MarkerManager", "   ✅ View annotation created successfully using layout resource")
+                    } catch (e: Exception) {
+                        android.util.Log.e("MarkerManager", "❌ Failed to create view annotation: ${e.message}", e)
+                        android.util.Log.e("MarkerManager", "Stack trace: ${e.stackTraceToString()}")
+                    }
+                    
+                    // Store marker data
+                    val markerDataObj = MarkerData(
+                        id = id,
+                        point = point,
+                        title = title,
+                        subtitle = subtitle,
+                        iconSource = markerData["iconSource"] as? String ?: "assetPath",
+                        iconData = markerData["iconData"] as? String ?: "images/marker_car.png",
+                        iconWidth = iconWidth,
+                        iconHeight = iconHeight,
+                        color = (markerData["color"] as? Number)?.toInt(),
+                        annotationId = id // Use marker ID as annotation ID for view annotations
+                    )
+                    markers[id] = markerDataObj
+                    
+                    android.util.Log.w("MarkerManager", "   ✅ View annotation created: markerID=$id")
+                    android.util.Log.w("MarkerManager", "      Position: $latitude, $longitude")
                 }
-            } ?: run {
-                android.util.Log.e("MarkerManager", "❌ Failed to create annotations - returned null")
+                
+                android.util.Log.w("MarkerManager", "✅ View annotations created successfully")
+            } catch (e: Exception) {
+                android.util.Log.e("MarkerManager", "❌ Exception while creating view annotations: ${e.message}", e)
+                android.util.Log.e("MarkerManager", "Stack trace: ${e.stackTraceToString()}")
             }
         }
     }
@@ -269,7 +427,8 @@ class MarkerManager(
     }
     
     private fun processMarkerUpdates(markersList: List<Map<String, Any>>) {
-        if (pointAnnotationManager == null) return
+        val viewAnnotationManager = mapView.viewAnnotationManager
+        if (viewAnnotationManager == null) return
         
         markersList.forEach { markerData ->
             val id = markerData["id"] as? String ?: return@forEach
@@ -277,38 +436,180 @@ class MarkerManager(
             val longitude = (markerData["longitude"] as? Number)?.toDouble() ?: return@forEach
             
             val existingMarker = markers[id]
-            if (existingMarker != null) {
-                val newPoint = Point.fromLngLat(longitude, latitude)
+            val newPoint = Point.fromLngLat(longitude, latitude)
+
+            // If marker doesn't exist yet, create it (self-healing)
+            if (existingMarker == null) {
+                android.util.Log.w("MarkerManager", "🆕 updateMarkers: marker '$id' missing -> creating view annotation")
+                // Create the marker using the same logic as addMarkers
+                val iconWidth = (markerData["iconWidth"] as? Number)?.toInt() ?: 40
+                val iconHeight = (markerData["iconHeight"] as? Number)?.toInt() ?: 40
+                val iconSource = markerData["iconSource"] as? String ?: "assetPath"
+                val iconData = markerData["iconData"] as? String ?: "images/marker_car.png"
                 
-                // Update stored point
-                val updatedMarker = existingMarker.copy(point = newPoint)
-                markers[id] = updatedMarker
-                
-                // Update annotation if exists
-                existingMarker.annotationId?.let { annotationId ->
-                    // Find and update the annotation
-                    val annotations = pointAnnotationManager?.annotations
-                    val annotation = annotations?.find { it.id.toString() == annotationId }
-                    
-                    annotation?.let {
-                        // Remove old and create new
-                        pointAnnotationManager?.delete(listOf(annotation))
-                        
-                        // Create new annotation with updated position
-                        val annotationOption = PointAnnotationOptions()
-                            .withPoint(newPoint)
-                            .withIconImage("default-marker")
-                        
-                        if (updatedMarker.title != null) {
-                            annotationOption.withTextField(updatedMarker.title)
-                            annotationOption.withTextAnchor(TextAnchor.BOTTOM)
+                // Load icon if not cached
+                val iconBitmap = customIconBitmap ?: run {
+                    // Load icon using runBlocking since we're in a non-suspend context
+                    // This is acceptable since updateMarkers is called less frequently
+                    try {
+                        runBlocking {
+                            iconLoader.loadIcon(iconSource, iconData, iconWidth, iconHeight, null)
                         }
-                        
-                        pointAnnotationManager?.create(listOf(annotationOption))?.firstOrNull()?.let { newAnnotation ->
-                            updatedMarker.annotationId = newAnnotation.id.toString()
-                            markers[id] = updatedMarker
-                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MarkerManager", "❌ Failed to load icon in updateMarkers: ${e.message}", e)
+                        null
                     }
+                }
+                
+                // Cache the icon if we just loaded it
+                if (iconBitmap != null && customIconBitmap == null) {
+                    customIconBitmap = iconBitmap
+                }
+                
+                try {
+                    val viewAnnotation = viewAnnotationManager.addViewAnnotation(
+                        resId = R.layout.marker_view_annotation,
+                        options = viewAnnotationOptions {
+                            geometry(newPoint)
+                            offsetY(-iconHeight / 2)
+                        }
+                    )
+                    
+                    // Get ImageView - the layout root IS the ImageView, so cast directly or use findViewById
+                    val markerImageView = if (viewAnnotation is ImageView) {
+                        viewAnnotation as ImageView
+                    } else {
+                        viewAnnotation.findViewById<ImageView>(R.id.marker_image)
+                    }
+                    val markerColor = (markerData["color"] as? Number)?.toInt() ?: android.graphics.Color.BLUE
+                    
+                    if (markerImageView != null) {
+                        if (iconBitmap != null) {
+                            markerImageView.setImageBitmap(iconBitmap)
+                            markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+                            android.util.Log.d("MarkerManager", "✅ Set custom icon bitmap on ImageView")
+                        } else {
+                            // Fallback: create a default colored marker
+                            android.util.Log.w("MarkerManager", "⚠️ Creating default colored marker (asset not found)")
+                            val defaultBitmap = createDefaultMarkerBitmap(iconWidth, iconHeight, markerColor)
+                            markerImageView.setImageBitmap(defaultBitmap)
+                            markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+                            android.util.Log.d("MarkerManager", "✅ Set default colored marker bitmap on ImageView")
+                        }
+                    } else {
+                        android.util.Log.e("MarkerManager", "❌ Could not get ImageView from view annotation")
+                        android.util.Log.e("MarkerManager", "   viewAnnotation type: ${viewAnnotation.javaClass.name}")
+                    }
+                    
+                    viewAnnotationMap[id] = viewAnnotation
+                    
+                    markers[id] = MarkerData(
+                        id = id,
+                        point = newPoint,
+                        title = markerData["title"] as? String,
+                        subtitle = markerData["subtitle"] as? String,
+                        iconSource = iconSource,
+                        iconData = iconData,
+                        iconWidth = iconWidth,
+                        iconHeight = iconHeight,
+                        color = markerColor,
+                        annotationId = id
+                    )
+                    android.util.Log.w("MarkerManager", "✅ updateMarkers: created view annotation for '$id'")
+                } catch (e: Exception) {
+                    android.util.Log.e("MarkerManager", "❌ Failed to create view annotation in updateMarkers: ${e.message}", e)
+                }
+                return@forEach
+            }
+
+            // Update stored point
+            val updatedMarker = existingMarker.copy(point = newPoint)
+            markers[id] = updatedMarker
+
+            // Update view annotation position if it exists
+            val viewAnnotation = viewAnnotationMap[id]
+            if (viewAnnotation == null) {
+                android.util.Log.w("MarkerManager", "🆕 updateMarkers: marker '$id' has no live view annotation -> creating")
+                // Recreate the view annotation
+                val iconWidth = existingMarker.iconWidth
+                val iconHeight = existingMarker.iconHeight
+                
+                // Load icon if not cached (use existing marker's iconSource/iconData)
+                val iconBitmap = customIconBitmap ?: run {
+                    try {
+                        runBlocking {
+                            iconLoader.loadIcon(existingMarker.iconSource, existingMarker.iconData, iconWidth, iconHeight, null)
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MarkerManager", "❌ Failed to load icon when recreating: ${e.message}", e)
+                        null
+                    }
+                }
+                
+                // Cache the icon if we just loaded it
+                if (iconBitmap != null && customIconBitmap == null) {
+                    customIconBitmap = iconBitmap
+                }
+                
+                try {
+                    val newViewAnnotation = viewAnnotationManager.addViewAnnotation(
+                        resId = R.layout.marker_view_annotation,
+                        options = viewAnnotationOptions {
+                            geometry(newPoint)
+                            offsetY(-iconHeight / 2)
+                        }
+                    )
+                    
+                    // Get ImageView - the layout root IS the ImageView, so cast directly or use findViewById
+                    val markerImageView = if (newViewAnnotation is ImageView) {
+                        newViewAnnotation as ImageView
+                    } else {
+                        newViewAnnotation.findViewById<ImageView>(R.id.marker_image)
+                    }
+                    val markerColor = existingMarker.color ?: android.graphics.Color.BLUE
+                    
+                    if (markerImageView != null) {
+                        if (iconBitmap != null) {
+                            markerImageView.setImageBitmap(iconBitmap)
+                            markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+                        } else {
+                            // Fallback: create a default colored marker
+                            android.util.Log.w("MarkerManager", "⚠️ Using default colored marker when recreating (asset not found)")
+                            val defaultBitmap = createDefaultMarkerBitmap(iconWidth, iconHeight, markerColor)
+                            markerImageView.setImageBitmap(defaultBitmap)
+                            markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+                        }
+                    } else {
+                        android.util.Log.e("MarkerManager", "❌ Could not get ImageView from recreated view annotation")
+                    }
+                    
+                    viewAnnotationMap[id] = newViewAnnotation
+                    android.util.Log.w("MarkerManager", "✅ updateMarkers: recreated view annotation for '$id'")
+                } catch (e: Exception) {
+                    android.util.Log.e("MarkerManager", "❌ Failed to recreate view annotation: ${e.message}", e)
+                }
+                return@forEach
+            }
+
+            // Update the view annotation position
+            try {
+                viewAnnotationManager.updateViewAnnotation(
+                    viewAnnotation,
+                    viewAnnotationOptions {
+                        geometry(newPoint)
+                        offsetY(-existingMarker.iconHeight / 2)
+                    }
+                )
+                android.util.Log.d("MarkerManager", "✅ Updated view annotation position for '$id'")
+            } catch (e: Exception) {
+                android.util.Log.e("MarkerManager", "❌ Failed to update view annotation position: ${e.message}", e)
+                // Fallback: remove and recreate
+                try {
+                    viewAnnotationManager.removeViewAnnotation(viewAnnotation)
+                    viewAnnotationMap.remove(id)
+                    // Recreate will happen on next update
+                } catch (e2: Exception) {
+                    android.util.Log.e("MarkerManager", "❌ Failed to remove view annotation: ${e2.message}", e2)
                 }
             }
         }
@@ -318,24 +619,21 @@ class MarkerManager(
      * Remove markers by IDs
      */
     fun removeMarkers(markerIds: List<String>) {
-        if (pointAnnotationManager == null) return
+        val viewAnnotationManager = mapView.viewAnnotationManager
+        if (viewAnnotationManager == null) return
         
-        val annotationsToDelete = mutableListOf<com.mapbox.maps.plugin.annotation.generated.PointAnnotation>()
-        
-        markerIds.forEach { id ->
-            val marker = markers[id]
-            marker?.annotationId?.let { annotationIdStr ->
-                // Find annotation by ID string
-                val annotations = pointAnnotationManager?.annotations
-                val annotation = annotations?.find { it.id.toString() == annotationIdStr }
-                annotation?.let { annotationsToDelete.add(it) }
-            }
-            markers.remove(id)
-        }
-        
-        if (annotationsToDelete.isNotEmpty()) {
-            Handler(Looper.getMainLooper()).post {
-                pointAnnotationManager?.delete(annotationsToDelete)
+        Handler(Looper.getMainLooper()).post {
+            markerIds.forEach { id ->
+                val viewAnnotation = viewAnnotationMap.remove(id)
+                if (viewAnnotation != null) {
+                    try {
+                        viewAnnotationManager.removeViewAnnotation(viewAnnotation)
+                        android.util.Log.d("MarkerManager", "✅ Removed view annotation for marker '$id'")
+                    } catch (e: Exception) {
+                        android.util.Log.e("MarkerManager", "❌ Failed to remove view annotation: ${e.message}", e)
+                    }
+                }
+                markers.remove(id)
             }
         }
     }
@@ -344,10 +642,12 @@ class MarkerManager(
      * Clear all markers
      */
     fun clearAllMarkers() {
-        if (pointAnnotationManager == null) return
+        val viewAnnotationManager = mapView.viewAnnotationManager
+        if (viewAnnotationManager == null) return
         
         Handler(Looper.getMainLooper()).post {
-            pointAnnotationManager?.deleteAll()
+            viewAnnotationManager.removeAllViewAnnotations()
+            viewAnnotationMap.clear()
         }
         markers.clear()
         pendingUpdates.clear()
@@ -395,7 +695,7 @@ class MarkerManager(
         updateRunnable?.let { updateHandler?.removeCallbacks(it) }
         updateHandler = null
         clearAllMarkers()
-        pointAnnotationManager = null
+        isInitialized = false
     }
 }
 

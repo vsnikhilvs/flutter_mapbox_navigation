@@ -114,19 +114,54 @@ class IconLoader(private val context: Context) {
     
     /**
      * Load icon from asset path
+     * Tries multiple paths since Flutter assets location can vary:
+     * 1. Direct path (for plugin assets or if path already includes flutter_assets/)
+     * 2. flutter_assets/ prefix (for Flutter app assets)
      */
     private suspend fun loadFromAsset(assetPath: String?, width: Int, height: Int): Bitmap? {
         if (assetPath.isNullOrBlank()) return null
         
-        return try {
-            val inputStream: InputStream = context.assets.open(assetPath)
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            inputStream.close()
-            resizeBitmap(bitmap, width, height)
-        } catch (e: Exception) {
-            android.util.Log.e("IconLoader", "Error loading from asset: ${e.message}", e)
-            null
+        android.util.Log.d("IconLoader", "=================================================")
+        android.util.Log.d("IconLoader", "📦 Loading asset from path: $assetPath")
+        
+        // Try multiple paths in order
+        val pathsToTry = listOf(
+            assetPath,  // Direct path (for plugin assets or if already includes flutter_assets/)
+            "flutter_assets/$assetPath",  // Flutter app assets
+            "assets/$assetPath"  // Alternative assets folder
+        )
+        
+        for (path in pathsToTry) {
+            try {
+                android.util.Log.d("IconLoader", "   Trying path: $path")
+                val inputStream: InputStream = context.assets.open(path)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream.close()
+                
+                if (bitmap != null) {
+                    android.util.Log.d("IconLoader", "✅ Asset loaded successfully from: $path (${bitmap.width}x${bitmap.height})")
+                    android.util.Log.d("IconLoader", "   Resizing to ${width}x${height}")
+                    android.util.Log.d("IconLoader", "=================================================")
+                    return resizeBitmap(bitmap, width, height)
+                } else {
+                    android.util.Log.w("IconLoader", "⚠️ BitmapFactory.decodeStream returned null for: $path")
+                }
+            } catch (e: java.io.FileNotFoundException) {
+                android.util.Log.d("IconLoader", "   Path not found: $path (trying next...)")
+                // Continue to next path
+            } catch (e: Exception) {
+                android.util.Log.w("IconLoader", "   Error loading from $path: ${e.message}")
+                // Continue to next path
+            }
         }
+        
+        // All paths failed
+        android.util.Log.e("IconLoader", "❌ Failed to load asset from all attempted paths:")
+        pathsToTry.forEach { path ->
+            android.util.Log.e("IconLoader", "   - $path")
+        }
+        android.util.Log.d("IconLoader", "=================================================")
+        return null
     }
     
     /**
