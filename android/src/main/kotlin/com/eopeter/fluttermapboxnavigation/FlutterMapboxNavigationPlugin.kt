@@ -317,12 +317,13 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
         val markersData = markersList.map { marker ->
             hashMapOf<String, Any>(
                 "id" to (marker["id"] as? String ?: ""),
-                "latitude" to (marker["latitude"] as? Double ?: 0.0),
-                "longitude" to (marker["longitude"] as? Double ?: 0.0),
+                "latitude" to ((marker["latitude"] as? Number)?.toDouble() ?: 0.0),
+                "longitude" to ((marker["longitude"] as? Number)?.toDouble() ?: 0.0),
                 "title" to (marker["title"] as? String ?: ""),
                 "subtitle" to (marker["subtitle"] as? String ?: ""),
                 "iconSource" to (marker["iconSource"] as? String ?: "defaultIcon"),
                 "iconData" to (marker["iconData"] as? String ?: ""),
+                "avatarUrl" to (marker["avatarUrl"] as? String ?: ""),
                 "iconWidth" to ((marker["iconWidth"] as? Number)?.toInt() ?: 40),
                 "iconHeight" to ((marker["iconHeight"] as? Number)?.toInt() ?: 40),
                 "color" to ((marker["color"] as? Number)?.toInt() ?: 0)
@@ -363,12 +364,13 @@ class FlutterMapboxNavigationPlugin : FlutterPlugin, MethodCallHandler,
         val markersData = markersList.map { marker ->
             hashMapOf<String, Any>(
                 "id" to (marker["id"] as? String ?: ""),
-                "latitude" to (marker["latitude"] as? Double ?: 0.0),
-                "longitude" to (marker["longitude"] as? Double ?: 0.0),
+                "latitude" to ((marker["latitude"] as? Number)?.toDouble() ?: 0.0),
+                "longitude" to ((marker["longitude"] as? Number)?.toDouble() ?: 0.0),
                 "title" to (marker["title"] as? String ?: ""),
                 "subtitle" to (marker["subtitle"] as? String ?: ""),
                 "iconSource" to (marker["iconSource"] as? String ?: "defaultIcon"),
                 "iconData" to (marker["iconData"] as? String ?: ""),
+                "avatarUrl" to (marker["avatarUrl"] as? String ?: ""),
                 "iconWidth" to ((marker["iconWidth"] as? Number)?.toInt() ?: 40),
                 "iconHeight" to ((marker["iconHeight"] as? Number)?.toInt() ?: 40),
                 "color" to ((marker["color"] as? Number)?.toInt() ?: 0)

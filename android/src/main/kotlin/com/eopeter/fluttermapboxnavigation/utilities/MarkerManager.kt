@@ -2,10 +2,16 @@ package com.eopeter.fluttermapboxnavigation.utilities
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.Matrix
 import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewOutlineProvider
+import android.graphics.Outline
+import android.graphics.Shader
+import android.util.LruCache
 import android.widget.ImageView
 import android.view.ViewGroup
 import com.eopeter.fluttermapboxnavigation.R
@@ -48,6 +54,7 @@ class MarkerManager(
     private var updateRunnable: Runnable? = null
     private var customIconBitmap: Bitmap? = null // Cache the custom icon bitmap for direct usage
     private var isInitialized = false
+    private val avatarMarkerCache = LruCache<String, Bitmap>(100)
 
     /**
      * Create an ImageView for a marker with the specified bitmap
@@ -87,6 +94,146 @@ class MarkerManager(
         
         return bitmap
     }
+
+    private fun createAvatarMarkerBitmap(sizePx: Int, markerColor: Int, avatarBitmap: Bitmap): Bitmap {
+        val size = sizePx.coerceAtLeast(1)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        val cx = size / 2f
+        val cy = size / 2f
+
+        val radius = cx - 2f
+        val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.FILL
+            color = markerColor
+        }
+        canvas.drawCircle(cx, cy, radius, bgPaint)
+
+        val borderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            color = android.graphics.Color.WHITE
+            strokeWidth = 3f
+        }
+        canvas.drawCircle(cx, cy, radius, borderPaint)
+
+        val inset = borderPaint.strokeWidth + 2f
+        val avatarRadius = (radius - inset).coerceAtLeast(1f)
+
+        val shader = BitmapShader(avatarBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        val matrix = Matrix()
+        // Center-crop the avatar into the inner circle
+        val srcW = avatarBitmap.width.toFloat().coerceAtLeast(1f)
+        val srcH = avatarBitmap.height.toFloat().coerceAtLeast(1f)
+        val dst = avatarRadius * 2f
+        val scale = maxOf(dst / srcW, dst / srcH)
+        val dx = cx - (srcW * scale) / 2f
+        val dy = cy - (srcH * scale) / 2f
+        matrix.setScale(scale, scale)
+        matrix.postTranslate(dx, dy)
+        shader.setLocalMatrix(matrix)
+
+        val avatarPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.FILL
+            this.shader = shader
+        }
+        canvas.drawCircle(cx, cy, avatarRadius, avatarPaint)
+
+        return bitmap
+    }
+
+    private fun avatarCacheKey(url: String, size: Int, markerColor: Int): String {
+        return "avatar:$url:$size:$markerColor"
+    }
+
+    private fun applyAvatarMarkerAsync(
+        markerImageView: ImageView,
+        avatarUrl: String,
+        size: Int,
+        markerColor: Int
+    ) {
+        val key = avatarCacheKey(avatarUrl, size, markerColor)
+        avatarMarkerCache.get(key)?.let { cached ->
+            android.util.Log.w("MarkerManager", "👤 avatarUrl cache hit: $avatarUrl (size=$size)")
+            markerImageView.setImageBitmap(cached)
+            return
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                android.util.Log.w("MarkerManager", "👤 Loading avatarUrl: $avatarUrl (size=$size)")
+                val avatar = iconLoader.loadIcon("networkUrl", avatarUrl, size, size, null)
+                if (avatar != null) {
+                    val composed = createAvatarMarkerBitmap(size, markerColor, avatar)
+                    avatarMarkerCache.put(key, composed)
+                    withContext(Dispatchers.Main) {
+                        android.util.Log.w("MarkerManager", "👤 ✅ Avatar loaded & applied for url=$avatarUrl")
+                        markerImageView.setImageBitmap(composed)
+                    }
+                } else {
+                    android.util.Log.w("MarkerManager", "👤 ❌ Avatar load returned null for url=$avatarUrl")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MarkerManager", "⚠️ Failed to load avatarUrl=$avatarUrl: ${e.message}")
+            }
+        }
+    }
+
+    private fun applyIconMarkerAsync(
+        markerImageView: ImageView,
+        iconSource: String,
+        iconData: String?,
+        iconWidth: Int,
+        iconHeight: Int,
+        markerColor: Int,
+        isProfilePicture: Boolean
+    ) {
+        // For the default participant icon we preload, use the cached bitmap (only for that specific asset).
+        if (iconSource == "assetPath" && iconData == "images/marker_car.png") {
+            customIconBitmap?.let { bmp ->
+                markerImageView.setImageBitmap(bmp)
+                markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+                markerImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                markerImageView.clipToOutline = false
+                markerImageView.outlineProvider = null
+                return
+            }
+        }
+
+        // Placeholder immediately
+        markerImageView.setImageBitmap(createDefaultMarkerBitmap(iconWidth, iconHeight, markerColor))
+        markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val tintColor = if (iconSource == "defaultIcon") markerColor else null
+                val bmp = iconLoader.loadIcon(iconSource, iconData, iconWidth, iconHeight, tintColor)
+                withContext(Dispatchers.Main) {
+                    if (bmp != null) {
+                        markerImageView.setImageBitmap(bmp)
+                    } else {
+                        markerImageView.setImageBitmap(createDefaultMarkerBitmap(iconWidth, iconHeight, markerColor))
+                    }
+
+                    if (isProfilePicture) {
+                        markerImageView.scaleType = ImageView.ScaleType.CENTER_CROP
+                        markerImageView.clipToOutline = true
+                        markerImageView.outlineProvider = object : ViewOutlineProvider() {
+                            override fun getOutline(view: View, outline: Outline) {
+                                val size = minOf(view.width, view.height)
+                                outline.setOval(0, 0, size, size)
+                            }
+                        }
+                    } else {
+                        markerImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                        markerImageView.clipToOutline = false
+                        markerImageView.outlineProvider = null
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MarkerManager", "⚠️ Failed to load iconSource=$iconSource iconData=$iconData: ${e.message}")
+            }
+        }
+    }
     
     /**
      * Create a default colored circle marker ImageView when asset loading fails
@@ -115,6 +262,7 @@ class MarkerManager(
         val subtitle: String?,
         val iconSource: String,
         val iconData: String?,
+        val avatarUrl: String?,
         val iconWidth: Int,
         val iconHeight: Int,
         val color: Int?,
@@ -233,30 +381,6 @@ class MarkerManager(
             android.util.Log.e("MarkerManager", "❌ ViewAnnotationManager is null")
             return
         }
-        // Load custom icon from assets once.
-        val iconBitmap = customIconBitmap ?: run {
-            val iconSource = batch.firstOrNull()?.get("iconSource") as? String ?: "assetPath"
-            val iconData = batch.firstOrNull()?.get("iconData") as? String ?: "images/marker_car.png"
-            val iconWidth = (batch.firstOrNull()?.get("iconWidth") as? Number)?.toInt() ?: 40
-            val iconHeight = (batch.firstOrNull()?.get("iconHeight") as? Number)?.toInt() ?: 40
-            
-            android.util.Log.d("MarkerManager", "Loading custom icon from assets")
-            android.util.Log.d("MarkerManager", "  iconSource: $iconSource, iconData: $iconData")
-            android.util.Log.d("MarkerManager", "  iconWidth: $iconWidth, iconHeight: $iconHeight")
-            
-            val loaded = withContext(Dispatchers.IO) {
-                iconLoader.loadIcon(iconSource, iconData, iconWidth, iconHeight, null)
-            }
-            
-            if (loaded != null) {
-                android.util.Log.d("MarkerManager", "✅ Icon bitmap loaded successfully (${loaded.width}x${loaded.height})")
-                customIconBitmap = loaded
-                loaded
-            } else {
-                android.util.Log.w("MarkerManager", "⚠️ Failed to load icon bitmap from assets")
-                null
-            }
-        }
         
         // Create view annotations on main thread
         Handler(Looper.getMainLooper()).post {
@@ -264,11 +388,14 @@ class MarkerManager(
             
             try {
                 batch.forEach { markerData ->
+                    android.util.Log.d("MarkerManager", "markerData keys: ${markerData.keys}")
                     val id = markerData["id"] as? String ?: return@forEach
                     val latitude = (markerData["latitude"] as? Number)?.toDouble() ?: return@forEach
                     val longitude = (markerData["longitude"] as? Number)?.toDouble() ?: return@forEach
                     val title = markerData["title"] as? String
                     val subtitle = markerData["subtitle"] as? String
+                    val avatarUrlDbg = (markerData["avatarUrl"] as? String)?.trim()
+                    android.util.Log.w("MarkerManager", "📍 addMarkerBatch marker id=$id avatarUrl=$avatarUrlDbg iconSource=${markerData["iconSource"]}")
                     
                     val point = Point.fromLngLat(longitude, latitude)
                     
@@ -303,18 +430,31 @@ class MarkerManager(
                         }
                         
                         if (markerImageView != null) {
-                            if (iconBitmap != null) {
-                                // Use the loaded icon bitmap
-                                markerImageView.setImageBitmap(iconBitmap)
-                                markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
-                                android.util.Log.d("MarkerManager", "✅ Set custom icon bitmap on ImageView")
+                            val iconSource = markerData["iconSource"] as? String ?: "defaultIcon"
+                            val iconData = markerData["iconData"] as? String
+                            val isProfilePicture = iconSource == "networkUrl" || iconSource == "base64"
+                            val avatarUrl = (markerData["avatarUrl"] as? String)?.trim()
+                            val size = minOf(iconWidth, iconHeight)
+
+                            if (!avatarUrl.isNullOrEmpty()) {
+                                // Participants with avatar: draw a circular dot marker with avatar inside.
+                                markerImageView.setImageBitmap(createDefaultMarkerBitmap(size, size, markerColor))
+                                markerImageView.layoutParams = ViewGroup.LayoutParams(size, size)
+                                markerImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                                markerImageView.clipToOutline = false
+                                markerImageView.outlineProvider = null
+                                applyAvatarMarkerAsync(markerImageView, avatarUrl, size, markerColor)
                             } else {
-                                // Create and set default colored marker bitmap
-                                android.util.Log.w("MarkerManager", "⚠️ Creating default colored marker (asset not found)")
-                                val defaultBitmap = createDefaultMarkerBitmap(iconWidth, iconHeight, markerColor)
-                                markerImageView.setImageBitmap(defaultBitmap)
-                                markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
-                                android.util.Log.d("MarkerManager", "✅ Set default colored marker bitmap on ImageView")
+                                // Load per-marker icon (network/base64/asset/default) so each marker can differ.
+                                applyIconMarkerAsync(
+                                    markerImageView = markerImageView,
+                                    iconSource = iconSource,
+                                    iconData = iconData,
+                                    iconWidth = iconWidth,
+                                    iconHeight = iconHeight,
+                                    markerColor = markerColor,
+                                    isProfilePicture = isProfilePicture
+                                )
                             }
                         } else {
                             android.util.Log.e("MarkerManager", "❌ Could not get ImageView from view annotation")
@@ -338,6 +478,7 @@ class MarkerManager(
                         subtitle = subtitle,
                         iconSource = markerData["iconSource"] as? String ?: "assetPath",
                         iconData = markerData["iconData"] as? String ?: "images/marker_car.png",
+                        avatarUrl = (markerData["avatarUrl"] as? String)?.trim(),
                         iconWidth = iconWidth,
                         iconHeight = iconHeight,
                         color = (markerData["color"] as? Number)?.toInt(),
@@ -446,6 +587,7 @@ class MarkerManager(
                 val iconHeight = (markerData["iconHeight"] as? Number)?.toInt() ?: 40
                 val iconSource = markerData["iconSource"] as? String ?: "assetPath"
                 val iconData = markerData["iconData"] as? String ?: "images/marker_car.png"
+                val avatarUrl = (markerData["avatarUrl"] as? String)?.trim()
                 
                 // Load icon if not cached
                 val iconBitmap = customIconBitmap ?: run {
@@ -483,11 +625,36 @@ class MarkerManager(
                     }
                     val markerColor = (markerData["color"] as? Number)?.toInt() ?: android.graphics.Color.BLUE
                     
+                    val isProfilePicture = iconSource == "networkUrl" || iconSource == "base64"
+                    val size = minOf(iconWidth, iconHeight)
+                    
                     if (markerImageView != null) {
-                        if (iconBitmap != null) {
+                        if (!avatarUrl.isNullOrEmpty()) {
+                            markerImageView.setImageBitmap(createDefaultMarkerBitmap(size, size, markerColor))
+                            markerImageView.layoutParams = ViewGroup.LayoutParams(size, size)
+                            markerImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                            markerImageView.clipToOutline = false
+                            markerImageView.outlineProvider = null
+                            applyAvatarMarkerAsync(markerImageView, avatarUrl, size, markerColor)
+                        } else if (iconBitmap != null) {
                             markerImageView.setImageBitmap(iconBitmap)
                             markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
-                            android.util.Log.d("MarkerManager", "✅ Set custom icon bitmap on ImageView")
+                            
+                            // Make profile pictures circular
+                            if (isProfilePicture) {
+                                markerImageView.scaleType = ImageView.ScaleType.CENTER_CROP
+                                markerImageView.clipToOutline = true
+                                markerImageView.outlineProvider = object : ViewOutlineProvider() {
+                                    override fun getOutline(view: View, outline: Outline) {
+                                        val size = minOf(view.width, view.height)
+                                        outline.setOval(0, 0, size, size)
+                                    }
+                                }
+                                android.util.Log.d("MarkerManager", "✅ Set profile picture bitmap (circular) on ImageView")
+                            } else {
+                                markerImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                                android.util.Log.d("MarkerManager", "✅ Set custom icon bitmap on ImageView")
+                            }
                         } else {
                             // Fallback: create a default colored marker
                             android.util.Log.w("MarkerManager", "⚠️ Creating default colored marker (asset not found)")
@@ -510,6 +677,7 @@ class MarkerManager(
                         subtitle = markerData["subtitle"] as? String,
                         iconSource = iconSource,
                         iconData = iconData,
+                        avatarUrl = avatarUrl,
                         iconWidth = iconWidth,
                         iconHeight = iconHeight,
                         color = markerColor,
@@ -523,7 +691,10 @@ class MarkerManager(
             }
 
             // Update stored point
-            val updatedMarker = existingMarker.copy(point = newPoint)
+            val updatedMarker = existingMarker.copy(
+                point = newPoint,
+                avatarUrl = (markerData["avatarUrl"] as? String)?.trim() ?: existingMarker.avatarUrl
+            )
             markers[id] = updatedMarker
 
             // Update view annotation position if it exists
@@ -568,10 +739,36 @@ class MarkerManager(
                     }
                     val markerColor = existingMarker.color ?: android.graphics.Color.BLUE
                     
+                    val isProfilePicture = existingMarker.iconSource == "networkUrl" || existingMarker.iconSource == "base64"
+                    val size = minOf(iconWidth, iconHeight)
+                    
                     if (markerImageView != null) {
-                        if (iconBitmap != null) {
+                        if (!existingMarker.avatarUrl.isNullOrEmpty()) {
+                            markerImageView.setImageBitmap(createDefaultMarkerBitmap(size, size, markerColor))
+                            markerImageView.layoutParams = ViewGroup.LayoutParams(size, size)
+                            markerImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                            markerImageView.clipToOutline = false
+                            markerImageView.outlineProvider = null
+                            applyAvatarMarkerAsync(markerImageView, existingMarker.avatarUrl!!, size, markerColor)
+                        } else if (iconBitmap != null) {
                             markerImageView.setImageBitmap(iconBitmap)
                             markerImageView.layoutParams = ViewGroup.LayoutParams(iconWidth, iconHeight)
+                            
+                            // Make profile pictures circular
+                            if (isProfilePicture) {
+                                markerImageView.scaleType = ImageView.ScaleType.CENTER_CROP
+                                markerImageView.clipToOutline = true
+                                markerImageView.outlineProvider = object : ViewOutlineProvider() {
+                                    override fun getOutline(view: View, outline: Outline) {
+                                        val size = minOf(view.width, view.height)
+                                        outline.setOval(0, 0, size, size)
+                                    }
+                                }
+                                android.util.Log.d("MarkerManager", "✅ Set profile picture bitmap (circular) when recreating")
+                            } else {
+                                markerImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                                android.util.Log.d("MarkerManager", "✅ Set custom icon bitmap when recreating")
+                            }
                         } else {
                             // Fallback: create a default colored marker
                             android.util.Log.w("MarkerManager", "⚠️ Using default colored marker when recreating (asset not found)")
@@ -589,6 +786,26 @@ class MarkerManager(
                     android.util.Log.e("MarkerManager", "❌ Failed to recreate view annotation: ${e.message}", e)
                 }
                 return@forEach
+            }
+
+            // If avatarUrl is provided/changed, update the marker image (async) as well.
+            val newAvatarUrl = (markerData["avatarUrl"] as? String)?.trim()
+            if (!newAvatarUrl.isNullOrEmpty() && newAvatarUrl != existingMarker.avatarUrl) {
+                val markerImageView = if (viewAnnotation is ImageView) {
+                    viewAnnotation as ImageView
+                } else {
+                    viewAnnotation.findViewById<ImageView>(R.id.marker_image)
+                }
+                if (markerImageView != null) {
+                    val markerColor = existingMarker.color ?: android.graphics.Color.BLUE
+                    val size = minOf(existingMarker.iconWidth, existingMarker.iconHeight)
+                    markerImageView.setImageBitmap(createDefaultMarkerBitmap(size, size, markerColor))
+                    markerImageView.layoutParams = ViewGroup.LayoutParams(size, size)
+                    markerImageView.scaleType = ImageView.ScaleType.FIT_CENTER
+                    markerImageView.clipToOutline = false
+                    markerImageView.outlineProvider = null
+                    applyAvatarMarkerAsync(markerImageView, newAvatarUrl, size, markerColor)
+                }
             }
 
             // Update the view annotation position
@@ -652,6 +869,7 @@ class MarkerManager(
         markers.clear()
         pendingUpdates.clear()
         iconLoader.clearCache()
+        avatarMarkerCache.evictAll()
     }
     
     /**

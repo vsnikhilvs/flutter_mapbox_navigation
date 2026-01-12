@@ -17,6 +17,12 @@ class MarkerManager {
     private var markers: [String: MarkerData] = [:]
     private var pendingUpdates: [MarkerUpdate] = []
     private var updateTimer: Timer?
+    private let avatarMarkerCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 200
+        cache.totalCostLimit = 50 * 1024 * 1024 // 50MB
+        return cache
+    }()
     
     // Clustering options
     private var clusteringEnabled = true
@@ -35,6 +41,7 @@ class MarkerManager {
         let subtitle: String?
         let iconSource: String
         let iconData: String?
+        var avatarUrl: String?
         let iconWidth: Int
         let iconHeight: Int
         let color: Int?
@@ -49,6 +56,70 @@ class MarkerManager {
     init(mapView: MapView, iconLoader: IconLoader) {
         self.mapView = mapView
         self.iconLoader = iconLoader
+    }
+    
+    private func markerUIColor(_ color: Int?) -> UIColor {
+        guard let colorValue = color else { return UIColor.systemBlue }
+        let red = CGFloat((colorValue >> 16) & 0xFF) / 255.0
+        let green = CGFloat((colorValue >> 8) & 0xFF) / 255.0
+        let blue = CGFloat(colorValue & 0xFF) / 255.0
+        return UIColor(red: red, green: green, blue: blue, alpha: 1.0)
+    }
+    
+    private func avatarCacheKey(url: String, width: Int, height: Int, color: Int?) -> NSString {
+        return "avatar:\(url):\(width)x\(height):\(color ?? 0)" as NSString
+    }
+    
+    private func createAvatarMarkerImage(avatar: UIImage, size: CGSize, markerColor: UIColor) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = min(size.width, size.height) / 2 - 2
+            
+            // Background dot
+            markerColor.setFill()
+            ctx.cgContext.fillEllipse(in: CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            ))
+            
+            // White border
+            UIColor.white.setStroke()
+            ctx.cgContext.setLineWidth(3.0)
+            ctx.cgContext.strokeEllipse(in: CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            ))
+            
+            let inset: CGFloat = 3.0 + 2.0
+            let innerRadius = max(radius - inset, 1.0)
+            let innerRect = CGRect(
+                x: center.x - innerRadius,
+                y: center.y - innerRadius,
+                width: innerRadius * 2,
+                height: innerRadius * 2
+            )
+            
+            // Clip to inner circle and draw avatar (aspect fill / center-crop)
+            ctx.cgContext.saveGState()
+            ctx.cgContext.addEllipse(in: innerRect)
+            ctx.cgContext.clip()
+            
+            let srcSize = avatar.size
+            let scale = max(innerRect.width / srcSize.width, innerRect.height / srcSize.height)
+            let drawSize = CGSize(width: srcSize.width * scale, height: srcSize.height * scale)
+            let drawOrigin = CGPoint(
+                x: innerRect.midX - drawSize.width / 2,
+                y: innerRect.midY - drawSize.height / 2
+            )
+            avatar.draw(in: CGRect(origin: drawOrigin, size: drawSize))
+            
+            ctx.cgContext.restoreGState()
+        }
     }
     
     /**
@@ -102,13 +173,101 @@ class MarkerManager {
                 let subtitle = markerData["subtitle"] as? String
                 let iconSource = markerData["iconSource"] as? String ?? "defaultIcon"
                 let iconData = markerData["iconData"] as? String
+                let avatarUrl = (markerData["avatarUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                print("MarkerManager iOS addMarkers: id=\(id) avatarUrl=\(avatarUrl ?? "nil") iconSource=\(iconSource)")
                 let iconWidth = (markerData["iconWidth"] as? NSNumber)?.intValue ?? 40
                 let iconHeight = (markerData["iconHeight"] as? NSNumber)?.intValue ?? 40
                 let color = (markerData["color"] as? NSNumber)?.intValue
+                let markerColor = markerUIColor(color)
                 
                 let point = Point(CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
                 
                 group.enter()
+                
+                // If avatarUrl is provided, render a circular marker with the avatar inside.
+                if let avatarUrl, !avatarUrl.isEmpty {
+                    let size = min(iconWidth, iconHeight)
+                    let key = self.avatarCacheKey(url: avatarUrl, width: size, height: size, color: color)
+                    if let cached = self.avatarMarkerCache.object(forKey: key) {
+                        var annotation = PointAnnotation(coordinate: point.coordinate)
+                        annotation.image = cached
+                        DispatchQueue.main.async {
+                            let markerDataObj = MarkerData(
+                                id: id,
+                                point: point,
+                                title: title,
+                                subtitle: subtitle,
+                                iconSource: iconSource,
+                                iconData: iconData,
+                                avatarUrl: avatarUrl,
+                                iconWidth: iconWidth,
+                                iconHeight: iconHeight,
+                                color: color,
+                                annotation: nil
+                            )
+                            self.markers[id] = markerDataObj
+                            annotations.append(annotation)
+                            group.leave()
+                        }
+                        continue
+                    }
+                    
+                    iconLoader.loadIcon(
+                        iconSource: "networkUrl",
+                        iconData: avatarUrl,
+                        width: size,
+                        height: size,
+                        color: nil
+                    ) { [weak self] avatar in
+                        defer { group.leave() }
+                        guard let self = self else { return }
+                        
+                        var annotation = PointAnnotation(coordinate: point.coordinate)
+                        if let avatar = avatar {
+                            print("MarkerManager iOS: ✅ avatar loaded for id=\(id) url=\(avatarUrl)")
+                            let composed = self.createAvatarMarkerImage(
+                                avatar: avatar,
+                                size: CGSize(width: size, height: size),
+                                markerColor: markerColor
+                            )
+                            self.avatarMarkerCache.setObject(composed, forKey: key)
+                            annotation.image = composed
+                        } else {
+                            print("MarkerManager iOS: ❌ avatar load returned nil for id=\(id) url=\(avatarUrl)")
+                        }
+                        
+                        // Set text if title provided
+                        if let title = title {
+                            annotation.textField = title
+                            if subtitle != nil {
+                                annotation.textOffset = [0, -2]
+                            }
+                            annotation.textAnchor = .bottom
+                        }
+                        
+                        let markerDataObj = MarkerData(
+                            id: id,
+                            point: point,
+                            title: title,
+                            subtitle: subtitle,
+                            iconSource: iconSource,
+                            iconData: iconData,
+                            avatarUrl: avatarUrl,
+                            iconWidth: iconWidth,
+                            iconHeight: iconHeight,
+                            color: color,
+                            annotation: nil
+                        )
+                        
+                        DispatchQueue.main.async {
+                            self.markers[id] = markerDataObj
+                            annotations.append(annotation)
+                        }
+                    }
+                    
+                    continue
+                }
+                
                 iconLoader.loadIcon(
                     iconSource: iconSource,
                     iconData: iconData,
@@ -146,6 +305,7 @@ class MarkerManager {
                         subtitle: subtitle,
                         iconSource: iconSource,
                         iconData: iconData,
+                        avatarUrl: nil,
                         iconWidth: iconWidth,
                         iconHeight: iconHeight,
                         color: color,
@@ -256,57 +416,64 @@ class MarkerManager {
     
     private func processMarkerUpdates(markersList: [[String: Any]]) {
         guard let annotationManager = pointAnnotationManager else { return }
-        
-        var updatedAnnotations: [PointAnnotation] = []
-        var annotationsToRemove: [PointAnnotation] = []
-        
+
         for markerData in markersList {
             guard let id = markerData["id"] as? String,
                   let latitude = (markerData["latitude"] as? NSNumber)?.doubleValue,
                   let longitude = (markerData["longitude"] as? NSNumber)?.doubleValue else {
                 continue
             }
-            
-            guard var existingMarker = markers[id] else { continue }
-            
+
             let newPoint = Point(CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
-            
-            // Remove old annotation
-            if let oldAnnotation = existingMarker.annotation {
-                annotationsToRemove.append(oldAnnotation)
+            let newAvatarUrl = (markerData["avatarUrl"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Self-heal: if marker doesn't exist, create it (position + optional avatar).
+            if markers[id] == nil {
+                let iconWidth = (markerData["iconWidth"] as? NSNumber)?.intValue ?? 40
+                let iconHeight = (markerData["iconHeight"] as? NSNumber)?.intValue ?? 40
+                let iconSource = markerData["iconSource"] as? String ?? "defaultIcon"
+                let iconData = markerData["iconData"] as? String
+                let color = (markerData["color"] as? NSNumber)?.intValue
+
+                addMarkers(markersList: [markerData], clusteringOptions: nil) { _ in }
+                continue
             }
-            
-            // Create new annotation with updated position
-            var newAnnotation = PointAnnotation(coordinate: newPoint.coordinate)
-            newAnnotation.image = existingMarker.annotation?.image
-            
-            if let title = existingMarker.title {
-                newAnnotation.textField = title
-                newAnnotation.textAnchor = .bottom
+
+            guard var existingMarker = markers[id], var annotation = existingMarker.annotation else { continue }
+            annotation.coordinate = newPoint.coordinate
+
+            // If avatarUrl changed, update the annotation image asynchronously.
+            if let newAvatarUrl, !newAvatarUrl.isEmpty, newAvatarUrl != existingMarker.avatarUrl {
+                existingMarker.avatarUrl = newAvatarUrl
+                let size = min(existingMarker.iconWidth, existingMarker.iconHeight)
+                let key = avatarCacheKey(url: newAvatarUrl, width: size, height: size, color: existingMarker.color)
+                if let cached = avatarMarkerCache.object(forKey: key) {
+                    annotation.image = cached
+                } else {
+                    let markerColor = markerUIColor(existingMarker.color)
+                    iconLoader.loadIcon(iconSource: "networkUrl", iconData: newAvatarUrl, width: size, height: size, color: nil) { [weak self] avatar in
+                        guard let self = self, let avatar = avatar else { return }
+                        let composed = self.createAvatarMarkerImage(avatar: avatar, size: CGSize(width: size, height: size), markerColor: markerColor)
+                        self.avatarMarkerCache.setObject(composed, forKey: key)
+                        DispatchQueue.main.async {
+                            if var m = self.markers[id] {
+                                m.avatarUrl = newAvatarUrl
+                                m.annotation?.image = composed
+                                self.markers[id] = m
+                                annotationManager.annotations = Array(self.markers.values.compactMap { $0.annotation })
+                            }
+                        }
+                    }
+                }
             }
-            
+
             // Update stored marker
             existingMarker.point = newPoint
-            existingMarker.annotation = newAnnotation
+            existingMarker.annotation = annotation
             markers[id] = existingMarker
-            
-            updatedAnnotations.append(newAnnotation)
         }
-        
-        // Update annotations
-        var currentAnnotations = annotationManager.annotations
-        currentAnnotations.removeAll { annotation in
-            annotationsToRemove.contains { $0.id == annotation.id }
-        }
-        annotationManager.annotations = currentAnnotations + updatedAnnotations
-        
-        // Update stored annotations
-        for annotation in updatedAnnotations {
-            // Find marker by coordinate match (simplified - in production use ID tracking)
-            if let markerId = markers.first(where: { $0.value.annotation?.id == annotation.id })?.key {
-                markers[markerId]?.annotation = annotation
-            }
-        }
+
+        annotationManager.annotations = Array(markers.values.compactMap { $0.annotation })
     }
     
     /**
@@ -342,6 +509,7 @@ class MarkerManager {
         pendingUpdates.removeAll()
         updateTimer?.invalidate()
         iconLoader.clearCache()
+        avatarMarkerCache.removeAllObjects()
     }
     
     /**

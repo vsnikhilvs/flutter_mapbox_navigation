@@ -329,6 +329,14 @@ MapMarker(
   iconData: 'https://example.com/icon.png',
 )
 
+// Avatar URL (renders a circular dot marker with the avatar inside)
+MapMarker(
+  id: 'participant1',
+  latitude: 37.7749,
+  longitude: -122.4194,
+  avatarUrl: 'https://example.com/avatar.png',
+)
+
 // Asset path
 MapMarker(
   id: 'user2',
@@ -391,8 +399,7 @@ Timer.periodic(Duration(seconds: 2), (timer) async {
     latitude: user.latitude,
     longitude: user.longitude,
     title: user.name,
-    iconSource: MarkerIconSource.networkUrl,
-    iconData: user.avatarUrl,
+    avatarUrl: user.avatarUrl,
   )).toList();
   
   // Update markers (only changed positions will be updated)

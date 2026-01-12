@@ -23,6 +23,7 @@ class MapMarker {
     this.subtitle,
     this.iconSource = MarkerIconSource.defaultIcon,
     this.iconData,
+    this.avatarUrl,
     this.iconWidth = 40,
     this.iconHeight = 40,
     this.color,
@@ -41,6 +42,7 @@ class MapMarker {
         subtitle = json['subtitle'] as String?,
         iconSource = _parseIconSource(json['iconSource'] as String?),
         iconData = json['iconData'] as String?,
+        avatarUrl = json['avatarUrl'] as String?,
         iconWidth = json['iconWidth'] as int? ?? 40,
         iconHeight = json['iconHeight'] as int? ?? 40,
         color = json['color'] as int?;
@@ -77,6 +79,13 @@ class MapMarker {
   /// Icon data (URL, asset path, or base64 string depending on iconSource)
   String? iconData;
 
+  /// Optional participant/user avatar URL.
+  ///
+  /// When provided, the native implementations will render a circular marker
+  /// that shows the avatar inside (with a dot/border style). If omitted, the
+  /// marker falls back to the existing iconSource/iconData behavior.
+  String? avatarUrl;
+
   /// Icon width in pixels (default: 40)
   int iconWidth;
 
@@ -96,6 +105,7 @@ class MapMarker {
       if (subtitle != null) 'subtitle': subtitle,
       'iconSource': iconSource.toString().split('.').last,
       if (iconData != null) 'iconData': iconData,
+      if (avatarUrl != null) 'avatarUrl': avatarUrl,
       'iconWidth': iconWidth,
       'iconHeight': iconHeight,
       if (color != null) 'color': color,

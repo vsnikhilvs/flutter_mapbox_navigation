@@ -3,6 +3,7 @@
     android:id="@+id/marker_image"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:scaleType="fitCenter"
-    android:adjustViewBounds="true" />
+    android:scaleType="centerCrop"
+    android:adjustViewBounds="true"
+    android:clipToOutline="true" />
 

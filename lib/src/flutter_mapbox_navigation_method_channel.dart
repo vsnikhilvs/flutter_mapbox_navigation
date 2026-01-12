@@ -177,6 +177,11 @@ class MethodChannelFlutterMapboxNavigation
     ClusteringOptions? clustering,
   }) async {
     final markersList = markers.map((m) => m.toMap()).toList();
+    if (kDebugMode) {
+      for (final m in markersList) {
+        log('flutter_mapbox_navigation addMarkers: id=${m['id']} avatarUrl=${m['avatarUrl']} iconSource=${m['iconSource']}');
+      }
+    }
     final args = <String, dynamic>{
       'markers': markersList,
     };
@@ -190,6 +195,11 @@ class MethodChannelFlutterMapboxNavigation
   @override
   Future<bool?> updateMarkers({required List<MapMarker> markers}) async {
     final markersList = markers.map((m) => m.toMap()).toList();
+    if (kDebugMode) {
+      for (final m in markersList) {
+        log('flutter_mapbox_navigation updateMarkers: id=${m['id']} avatarUrl=${m['avatarUrl']} iconSource=${m['iconSource']}');
+      }
+    }
     final args = <String, dynamic>{
       'markers': markersList,
     };
